@@ -1,0 +1,63 @@
+# Vice Coast — Make GTA 6 entry
+
+![gta6-01](https://make.fun/badge/gta6-01.svg)
+![rank](https://make.fun/badge/gta6-01/antololcrazy1/gta6/rank.svg)
+![reward](https://make.fun/badge/gta6-01/antololcrazy1/gta6/reward.svg)
+
+An original open-world crime game built for the [make.fun](https://make.fun) bounty **gta6-01 "Make GTA 6"** — a sun-soaked coastal city to explore on foot and by car, in the spirit of GTA 6, with none of Rockstar's names, characters, map, art or music. Everything here — the city, the characters, the story, the art and the sounds — is original.
+
+## Play it
+
+Serve the `game/` folder with any static server, then open `game/index.html` in desktop Chrome. No build step, no network request — every script, image, sound and font is a file under `game/` or generated in code.
+
+```sh
+node serve.ts   # then open http://localhost:8080
+```
+
+## The game
+
+You are a newcomer in **Vice Coast**, a coastal city of neon hotels, a wooden pier, parks, docks and a coral bank. Explore the 3600×2600 city, steal cars, dodge the Vice Coast PD, and run a 5-mission story chain:
+
+1. **Sunset Taxi** — pick up Maya at the pier, drop her at the Neon Hotel ($150)
+2. **Package Run** — collect 3 packages around Palm Row and deliver them to the docks ($250)
+3. **Getaway** — grab the bag from the arcade and reach the hideout in 75 seconds ($350)
+4. **Lose the Heat** — break line of sight at 3 wanted stars until the heat dies down ($400)
+5. **The Sunset Heist** — hit the Coral Bank vault and escape to the hideout ($800)
+
+Finish all five and Vice Coast is yours.
+
+### Features
+
+- Open city on foot and by car: traffic, wandering pedestrians, parked and moving cars to steal, beach and pier, parks, day-sunset palette
+- Driving with acceleration, braking, steering, crash damage and a speedometer
+- Wanted system (0–5 stars) that rises on stealing, hitting pedestrians, shooting and cop-killing, and decays when you stay hidden; police cars and foot cops chase, ram and arrest you
+- Combat: shoot (mouse / J) or punch when out of ammo, health and ammo pickups, cash, repair and health pickups scattered around the city
+- HUD with money, respect, health, wanted stars, a live minimap (player, cops, mission marker, north), mission objective banner, off-screen mission arrow and timers
+- Title screen, mission briefings, pause, game over (Wasted / Busted) and win screens; best money and missions completed saved to localStorage
+- WebAudio sound: engine hum, police siren, gunshots, pickups, mission jingles — M to mute
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Move on foot, drive / steer in a car |
+| Shift | Sprint |
+| Space | Enter / exit the nearest car (stealing one raises your wanted level) |
+| Mouse click / J | Shoot toward the mouse |
+| E | Interact |
+| P / Esc | Pause |
+| M | Mute |
+| R | Restart after game over / win |
+
+## Screenshots
+
+Staged by an autopilot playing the real game rules forward from a fresh world (`game/src/shots.js`, `?shot=start|play|chase|end&seed=7`):
+
+1. `1-start.jpg` — title screen over the sunset city
+2. `2-play.jpg` — driving the Sunset Taxi mission through traffic
+3. `3-chase.jpg` — a 3-star police chase
+4. `4-end.jpg` — the Sunset Heist win screen
+
+## Tech
+
+Vanilla 2D canvas + ES modules, no libraries, no build step. `main.ts` (Node 22, stdlib only) copies `game/` and `screenshots/` to `/output` and writes `dossier.json` via `vendor/makefun-game.ts`.

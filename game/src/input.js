@@ -1,11 +1,12 @@
 // Keyboard + mouse input. Held keys give a movement vector; one-shot presses
-// (confirm, pause, enter car, interact, shoot, mute) are queued as flags.
+// (confirm, pause, enter car, interact, shoot, mute, radio) are queued as flags.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_ENTER = 4;
 export const ACTION_INTERACT = 8;
 export const ACTION_SHOOT = 16;
 export const ACTION_MUTE = 32;
+export const ACTION_RADIO = 64;
 
 // Touch devices have no keyboard: the on-foot HUD shows this instead of the
 // key list. (Checked once at load; a desktop browser never matches.)
@@ -32,6 +33,7 @@ export function createInput(canvas) {
     else if (event.code === 'KeyJ') actions |= ACTION_SHOOT;
     else if (event.code === 'KeyP' || event.code === 'Escape') actions |= ACTION_PAUSE;
     else if (event.code === 'KeyM') actions |= ACTION_MUTE;
+    else if (event.code === 'KeyQ') actions |= ACTION_RADIO;
     else if (event.code === 'KeyR') actions |= ACTION_CONFIRM;
     else return;
     event.preventDefault();

@@ -11,6 +11,8 @@
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Staged screenshots (shots.json) run newest first: the 3-star chase is the
 // cover, then the taxi drive, the Coral Bank heist shootout, and the win screen.
+// v3: the game now runs 6 missions (Vice Nights finale), an in-car radio and
+// screen-shake / skid / muzzle-flash effects; this plumbing is unchanged.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 

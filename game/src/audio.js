@@ -1,5 +1,7 @@
 // Tiny WebAudio synth: no audio files, everything is oscillators + noise.
 // Engine hum, siren, gunshot, pickup blip, mission jingle, crash thud.
+// The radio (radio.js) schedules its chiptune through the public note()
+// helper so muting and unlocking stay in one place.
 export function createAudio() {
   let ctx = null; let muted = false; let engineOsc = null; let engineGain = null; let sirenTimer = 0; let rotorTimer = 0;
   function ensure() {
@@ -37,6 +39,9 @@ export function createAudio() {
     unlock() { ensure(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
     toggleMute() { muted = !muted; if (engineGain) engineGain.gain.value = 0; return muted; },
     get muted() { return muted; },
+    get unlocked() { return !!ctx; },
+    // Single-note helper for the radio sequencer: a quiet synth note.
+    note(freq, dur, type, vol) { tone(freq, dur, type, vol); },
     shot() { noise(0.14, 0.28, 2400); tone(180, 0.08, 'square', 0.1, 60); },
     punch() { noise(0.08, 0.2, 700); },
     pickup() { tone(660, 0.09, 'sine', 0.14); setTimeout(() => tone(990, 0.12, 'sine', 0.14), 70); },

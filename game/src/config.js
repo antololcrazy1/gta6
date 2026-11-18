@@ -29,6 +29,15 @@ export const HIDDEN_PACKAGES = [
   { x: 704, y: 2240, label: 'Hideout stash' },
 ];
 
+// Night drops: the 4 pickup spots for the final "Vice Nights" mission, one in
+// each corner of the city so the route crosses the whole map at 4 stars.
+export const NIGHT_DROPS = [
+  { x: 320, y: 320, label: 'North pier' },
+  { x: 3280, y: 320, label: 'East beach' },
+  { x: 3280, y: 2280, label: 'South docks' },
+  { x: 320, y: 2280, label: 'West marina' },
+];
+
 export const PALETTE = {
   sea: '#1b6f8e', seaDeep: '#145a76', sand: '#e8c98f', sandDark: '#d9b878',
   grass: '#4f9e57', grassDark: '#3f8a49', road: '#33363d', roadEdge: '#4a4e57',
@@ -38,4 +47,3 @@ export const PALETTE = {
   text: '#fff7e8', muted: '#ffd9a0', panel: 'rgba(20,16,32,0.92)', gold: '#ffc93c',
   hudBg: 'rgba(12,10,24,0.62)', cop: '#2f6fd0', copLight: '#ff3b30',
 };
-

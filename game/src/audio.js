@@ -1,7 +1,7 @@
 // Tiny WebAudio synth: no audio files, everything is oscillators + noise.
 // Engine hum, siren, gunshot, pickup blip, mission jingle, crash thud.
 export function createAudio() {
-  let ctx = null; let muted = false; let engineOsc = null; let engineGain = null; let sirenTimer = 0;
+  let ctx = null; let muted = false; let engineOsc = null; let engineGain = null; let sirenTimer = 0; let rotorTimer = 0;
   function ensure() {
     if (ctx) return ctx;
     try {
@@ -47,6 +47,13 @@ export function createAudio() {
       sirenTimer += dt;
       if (on && engineGain) { /* siren wail via periodic tone */ }
       if (on && sirenTimer > 0.45) { sirenTimer = 0; tone(720, 0.4, 'sine', 0.05, 980); }
+    },
+    // Helicopter rotor: a low chopped thump while the heli is overhead, using
+    // the same short-noise helper as the gunshot. Silent when muted or no heli.
+    rotor(dt, on) {
+      if (!ensure() || muted) return;
+      rotorTimer += dt;
+      if (on && rotorTimer > 0.09) { rotorTimer = 0; noise(0.06, 0.12, 300); tone(55, 0.07, 'sine', 0.08, 42); }
     },
     engine(speed, inCar) {
       if (!ensure()) return;

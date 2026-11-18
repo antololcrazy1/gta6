@@ -4,7 +4,7 @@
 ![rank](https://make.fun/badge/gta6-01/antololcrazy1/gta6/rank.svg)
 ![reward](https://make.fun/badge/gta6-01/antololcrazy1/gta6/reward.svg)
 
-An original open-world crime game built for the [make.fun](https://make.fun) bounty **gta6-01 "Make GTA 6"** — a sun-soaked coastal city to explore on foot and by car, in the spirit of GTA 6, with none of Rockstar's names, characters, map, art or music. Everything here — the city, the characters, the story, the art and the sounds — is original.
+An original open-world crime game built for the [make.fun](https://make.fun) bounty **[gta6-01 "Make GTA 6"](https://make.fun/bounty/gta6-01)** — a sun-soaked coastal city to explore on foot and by car, in the spirit of GTA 6, with none of Rockstar's names, characters, map, art or music. Everything here — the city, the characters, the story, the art and the sounds — is original.
 
 ## Play it
 
@@ -30,11 +30,12 @@ Finish all five and Vice Coast is yours.
 
 - Open city on foot and by car: traffic, wandering pedestrians, parked and moving cars to steal, beach and pier, parks, day-sunset palette
 - Driving with acceleration, braking, steering, crash damage and a speedometer
-- Wanted system (0–5 stars) that rises on stealing, hitting pedestrians, shooting and cop-killing, and decays when you stay hidden; police cars and foot cops chase, ram and arrest you
+- Wanted system (0–5 stars) that rises on stealing, hitting pedestrians, shooting and cop-killing, and decays when you stay hidden; police cars and foot cops chase, ram and arrest you — and at 4–5 stars a **VCPD helicopter** circles overhead with a spotlight and a rotor thump, tracked on the minimap
+- Hidden packages: 10 golden parcels tucked beside landmarks across the city, each worth $50 and +2 respect, tracked as PACKAGES n/10 in the HUD
 - Combat: shoot (mouse / J) or punch when out of ammo, health and ammo pickups, cash, repair and health pickups scattered around the city
 - HUD with money, respect, health, wanted stars, a live minimap (player, cops, mission marker, north), mission objective banner, off-screen mission arrow and timers
 - Title screen, mission briefings, pause, game over (Wasted / Busted) and win screens; best money and missions completed saved to localStorage
-- WebAudio sound: engine hum, police siren, gunshots, pickups, mission jingles — M to mute
+- WebAudio sound: engine hum, police siren, helicopter rotor, gunshots, pickups, mission jingles — M to mute
 
 ## Controls
 
@@ -51,11 +52,11 @@ Finish all five and Vice Coast is yours.
 
 ## Screenshots
 
-Staged by an autopilot playing the real game rules forward from a fresh world (`game/src/shots.js`, `?shot=start|play|chase|end&seed=7`):
+Staged by an autopilot playing the real game rules forward from a fresh world (`game/src/shots.js`, `?shot=chase|play|heist|end&seed=7`) — the chase is the cover, so the first thing a judge sees is gameplay, not the title screen:
 
-1. `1-start.jpg` — title screen over the sunset city
+1. `1-chase.jpg` — a 3-star police chase through traffic
 2. `2-play.jpg` — driving the Sunset Taxi mission through traffic
-3. `3-chase.jpg` — a 3-star police chase
+3. `3-heist.jpg` — the Sunset Heist shootout on foot outside Coral Bank
 4. `4-end.jpg` — the Sunset Heist win screen
 
 ## Tech

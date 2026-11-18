@@ -1,8 +1,9 @@
 // Vice Coast rules: no drawing, no browser. A 3600x2600 coastal city, traffic and
 // pedestrians, stealable cars, wanted stars and police, a 5-mission story, combat,
 // pickups, money and respect. step() advances one fixed step and returns event flags.
-import { CAR, MISSIONS, PALETTE, PLAYER, STEP, VIEW, WORLD, WANTED_DECAY } from './config.js';
-import { pick, range } from './random.js';
+import { CAR, HELI, HIDDEN_PACKAGES, PALETTE, PLAYER, STEP, VIEW, WORLD, WANTED_DECAY } from './config.js';
+import { MISSIONS, completeMission as completeMissionFlow, createMissionState, refreshMissionTarget, startMission as startMissionFlow } from './missions.js';
+import { pick, range, shuffle } from './random.js';
 
 export const EVENT_HIT = 1;
 export const EVENT_PICKUP = 2;
@@ -55,11 +56,12 @@ export function createWorld(random) {
   const cars = []; const peds = []; const cops = []; const bullets = []; const pickups = []; const particles = [];
   const state = {
     player, cars, peds, cops, bullets, pickups, particles, buildings, parks, trees, landmarks,
+    ...createMissionState(),
     money: 0, respect: 0, wanted: 0, wantedTimer: 0, crimeTimer: 99, elapsed: 0,
-    missionIndex: 0, missionStage: 0, missionTimer: 0, packagesLeft: 0, collected: 0,
-    missionTarget: null, missionText: '', missionFlash: 0, message: '', messageTimer: 0,
-    over: null, overReason: '', camera: { x: 0, y: 0 }, arrest: 0, best: 0, missionsDone: 0,
+    message: '', messageTimer: 0,
+    over: null, overReason: '', camera: { x: 0, y: 0 }, arrest: 0, best: 0,
     shotsFired: 0, carsStolen: 0, pedsHit: 0,
+    heli: null, hiddenFound: 0, hiddenTotal: HIDDEN_PACKAGES.length,
   };
 
   function spawnTraffic() {
@@ -95,38 +97,20 @@ export function createWorld(random) {
   }
   function spawnPickups() {
     pickups.length = 0;
-    const kinds = ['cash', 'cash', 'health', 'ammo', 'cash', 'repair', 'health', 'ammo', 'cash', 'cash', 'health', 'repair', 'ammo', 'cash'];
+    // Shuffle the scatter so the same seed still repeats, but cash/health/ammo
+    // land in a different order each city.
+    const kinds = shuffle(random, ['cash', 'cash', 'health', 'ammo', 'cash', 'repair', 'health', 'ammo', 'cash', 'cash', 'health', 'repair', 'ammo', 'cash']);
     for (const kind of kinds) {
       pickups.push({ x: range(random, 320, WORLD.width - 80), y: range(random, 120, WORLD.height - 80), kind, active: true, bob: range(random, 0, 6) });
     }
+    // Hidden packages: fixed landmark spots, same every run.
+    for (const spot of HIDDEN_PACKAGES) {
+      pickups.push({ x: spot.x, y: spot.y, kind: 'hidden', label: spot.label, active: true, bob: range(random, 0, 6) });
+    }
   }
 
-  function setMissionTarget() {
-    const m = state.missionIndex;
-    if (m >= MISSIONS.length) { state.missionTarget = null; state.missionText = 'Vice Coast is yours. Free roam!'; return; }
-    const L = landmarks;
-    if (m === 0) state.missionTarget = state.missionStage === 0 ? { ...L.pier, label: 'Pick up Maya' } : { ...L.hotel, label: 'Drop Maya off' };
-    else if (m === 1) state.missionTarget = state.missionStage < 3 ? { ...L.packages[state.missionStage], label: `Package ${state.missionStage + 1}/3` } : { ...L.docks, label: 'Deliver to the docks' };
-    else if (m === 2) state.missionTarget = state.missionStage === 0 ? { ...L.arcade, label: 'Grab the bag' } : { ...L.hideout, label: 'Reach the hideout!' };
-    else if (m === 3) state.missionTarget = { ...L.hideout, label: 'Get to the hideout' };
-    else state.missionTarget = state.missionStage === 0 ? { ...L.bank, label: 'Hit Coral Bank' } : { ...L.hideout, label: 'Escape to the hideout!' };
-    state.missionText = `${MISSIONS[m].name} — ${state.missionTarget.label}`;
-  }
-  function startMission(i) {
-    state.missionIndex = i; state.missionStage = 0; state.packagesLeft = 3; state.collected = 0;
-    state.missionTimer = i === 2 ? 75 : i === 1 ? 120 : 0;
-    if (i === 3) addWanted(3, true);
-    setMissionTarget();
-    state.missionFlash = 3;
-    state.message = `${MISSIONS[i].name}: ${MISSIONS[i].brief}`; state.messageTimer = 5;
-  }
-  function completeMission() {
-    const m = MISSIONS[state.missionIndex];
-    state.money += m.reward; state.respect += 20; state.missionsDone += 1;
-    state.message = `Mission complete! +$${m.reward} — ${m.name}`; state.messageTimer = 4; state.missionFlash = 3;
-    if (state.missionIndex === MISSIONS.length - 1) { winGame(); return; }
-    startMission(state.missionIndex + 1);
-  }
+  // Mission flow lives in missions.js; the world calls it with its live state
+  // and landmarks. winGame stays here: it flips the world's over flag.
   function winGame() { state.over = 'win'; state.overReason = 'You pulled off the Sunset Heist. Vice Coast is yours.'; }
   function addWanted(n, silent) {
     const before = state.wanted;
@@ -143,8 +127,9 @@ export function createWorld(random) {
     state.money = 0; state.respect = 0; state.wanted = 0; state.wantedTimer = 0; state.crimeTimer = 99;
     state.elapsed = 0; state.over = null; state.overReason = ''; state.arrest = 0;
     state.shotsFired = 0; state.carsStolen = 0; state.pedsHit = 0;
+    state.heli = null; state.hiddenFound = 0;
     spawnTraffic(); spawnPeds(); spawnPickups();
-    startMission(0);
+    startMissionFlow(state, 0, landmarks, addWanted);
   }
 
   function collideBuildings(x, y, r) {
@@ -297,6 +282,19 @@ export function createWorld(random) {
       }
     }
   }
+  // Police helicopter: spawns at 4+ stars, orbits the player, leaves when the
+  // heat drops below 4. Only one heli; it can never be shot down.
+  function updateHeli(dt) {
+    if (state.wanted < 4) { state.heli = null; return; }
+    if (!state.heli) {
+      state.heli = { x: player.x + HELI.radius, y: player.y - HELI.radius, angle: -Math.PI / 4, rotor: 0 };
+    }
+    const h = state.heli;
+    h.angle += HELI.orbitSpeed * dt;
+    h.x = player.x + Math.cos(h.angle) * HELI.radius;
+    h.y = player.y + Math.sin(h.angle) * HELI.radius;
+    h.rotor += HELI.rotorSpeed * dt;
+  }
   function updateCops(dt) {
     const wantCars = state.wanted >= 2 ? Math.min(3, state.wanted) : state.wanted >= 1 ? 1 : 0;
     const wantFoot = state.wanted >= 1 ? Math.min(4, state.wanted + 1) : 0;
@@ -383,7 +381,10 @@ export function createWorld(random) {
       pk.bob += dt;
       if (dist(player.x, player.y, pk.x, pk.y) < 36) {
         pk.active = false;
-        if (pk.kind === 'cash') { const v = 25 + Math.floor(random() * 50); state.money += v; state.message = `+$${v} found!`; state.messageTimer = 2; }
+        if (pk.kind === 'hidden') {
+          state.hiddenFound += 1; state.money += 50; state.respect += 2;
+          state.message = `Hidden package ${state.hiddenFound}/${state.hiddenTotal} found! +$50`; state.messageTimer = 3;
+        } else if (pk.kind === 'cash') { const v = 25 + Math.floor(random() * 50); state.money += v; state.message = `+$${v} found!`; state.messageTimer = 2; }
         else if (pk.kind === 'health') { player.health = Math.min(PLAYER.health, player.health + 40); state.message = 'Health +40'; state.messageTimer = 2; }
         else if (pk.kind === 'ammo') { player.ammo += 24; state.message = 'Ammo +24'; state.messageTimer = 2; }
         else if (pk.kind === 'repair') {
@@ -399,26 +400,26 @@ export function createWorld(random) {
   function updateMission(dt) {
     if (state.missionIndex >= MISSIONS.length || state.over) return 0;
     const m = state.missionIndex;
-    if (m === 1 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Too slow — packages returned. Try again!'; state.messageTimer = 3; startMission(1); return 0; } }
-    if (m === 2 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Getaway failed — the hideout moved on. Try again!'; state.messageTimer = 3; startMission(2); return 0; } }
+    if (m === 1 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Too slow — packages returned. Try again!'; state.messageTimer = 3; startMissionFlow(state, 1, landmarks, addWanted); return 0; } }
+    if (m === 2 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Getaway failed — the hideout moved on. Try again!'; state.messageTimer = 3; startMissionFlow(state, 2, landmarks, addWanted); return 0; } }
     if (m === 3) {
       // Survive until wanted drops to 0.
-      if (state.wanted === 0) { completeMission(); return EVENT_MISSION; }
+      if (state.wanted === 0) { completeMissionFlow(state, landmarks, addWanted, winGame); return EVENT_MISSION; }
       return 0;
     }
     const t = state.missionTarget;
     if (!t) return 0;
     if (dist(player.x, player.y, t.x, t.y) < 80) {
-      if (m === 0) { if (state.missionStage === 0) { state.missionStage = 1; state.message = 'Maya is in! Now the Neon Hotel.'; state.messageTimer = 3; setMissionTarget(); } else completeMission(); }
+      if (m === 0) { if (state.missionStage === 0) { state.missionStage = 1; state.message = 'Maya is in! Now the Neon Hotel.'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); } else completeMissionFlow(state, landmarks, addWanted, winGame); }
       else if (m === 1) {
-        if (state.missionStage < 3) { state.missionStage += 1; state.collected += 1; state.message = `Package ${state.collected}/3 collected!`; state.messageTimer = 2; burst(t.x, t.y, '#ffc93c', 12, 220); setMissionTarget(); }
-        else completeMission();
+        if (state.missionStage < 3) { state.missionStage += 1; state.collected += 1; state.message = `Package ${state.collected}/3 collected!`; state.messageTimer = 2; burst(t.x, t.y, '#ffc93c', 12, 220); refreshMissionTarget(state, landmarks); }
+        else completeMissionFlow(state, landmarks, addWanted, winGame);
       } else if (m === 2) {
-        if (state.missionStage === 0) { state.missionStage = 1; addWanted(2, true); state.message = 'Bag grabbed! Run for the hideout — 2 stars!'; state.messageTimer = 3; setMissionTarget(); }
-        else completeMission();
+        if (state.missionStage === 0) { state.missionStage = 1; addWanted(2, true); state.message = 'Bag grabbed! Run for the hideout — 2 stars!'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); }
+        else completeMissionFlow(state, landmarks, addWanted, winGame);
       } else if (m === 4) {
-        if (state.missionStage === 0) { state.missionStage = 1; state.money += 200; addWanted(3, true); state.message = 'Vault loot grabbed! +$200 — escape!'; state.messageTimer = 3; setMissionTarget(); }
-        else completeMission();
+        if (state.missionStage === 0) { state.missionStage = 1; state.money += 200; addWanted(3, true); state.message = 'Vault loot grabbed! +$200 — escape!'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); }
+        else completeMissionFlow(state, landmarks, addWanted, winGame);
       }
       return EVENT_MISSION;
     }
@@ -448,6 +449,7 @@ export function createWorld(random) {
     updatePlayer(dt, c);
     updateBullets(dt);
     updateCops(dt);
+    updateHeli(dt);
     events |= updatePickups(dt);
     events |= updateMission(dt);
     // Wanted decay: hidden (no cop within 450) and no recent crime.
@@ -467,7 +469,9 @@ export function createWorld(random) {
 
   reset();
   return {
-    state, reset, step, addWanted, enterCar, shoot, startMission, completeMission,
+    state, reset, step, addWanted, enterCar, shoot,
+    startMission(i) { startMissionFlow(state, i, landmarks, addWanted); },
+    completeMission() { completeMissionFlow(state, landmarks, addWanted, winGame); },
     // Staging helpers used by shots.js / tests: real code paths, not shortcuts.
     debugWin() { state.money = 1950; state.missionsDone = 5; state.missionIndex = 5; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
     debugChase() { player.x = 1856; player.y = 1280; addWanted(3, true); },

@@ -1,6 +1,8 @@
 // Drawing only: world state + screen in, pixels out. Top-down sunset city,
 // cars and characters drawn as shapes, HUD, minimap, panels. 1280x720 logical view.
-import { CAR, FONT, MISSIONS, PALETTE, PLAYER, VIEW, WORLD } from './config.js';
+import { CAR, FONT, PALETTE, PLAYER, VIEW, WORLD } from './config.js';
+import { IS_TOUCH, TOUCH_HINT } from './input.js';
+import { MISSIONS } from './missions.js';
 import { ROADS_H, ROADS_V } from './world.js';
 
 export const SCREEN_TITLE = 'title';
@@ -144,7 +146,18 @@ export function createRenderer(canvas) {
       if (!pk.active) continue;
       const bob = Math.sin(time * 3 + pk.bob) * 3;
       context.save(); context.translate(pk.x, pk.y + bob);
-      if (pk.kind === 'cash') { context.fillStyle = '#2ecc71'; rr(-13, -9, 26, 18, 3); context.fill(); context.fillStyle = '#fff'; text('$', 0, 5, 15, '#fff', 'center', true); }
+      if (pk.kind === 'hidden') {
+        // Gold diamond with a twinkling inner facet and a sparkle tick.
+        context.fillStyle = '#ffc93c';
+        context.beginPath(); context.moveTo(0, -13); context.lineTo(10, 0); context.lineTo(0, 13); context.lineTo(-10, 0); context.closePath(); context.fill();
+        context.fillStyle = '#fff3c4';
+        const tw = 1 + Math.sin(time * 5 + pk.bob) * 0.3;
+        context.beginPath(); context.moveTo(0, -6 * tw); context.lineTo(4, 0); context.lineTo(0, 6 * tw); context.lineTo(-4, 0); context.closePath(); context.fill();
+        context.strokeStyle = 'rgba(255,255,255,0.9)'; context.lineWidth = 2;
+        const sp = 16 + Math.sin(time * 4 + pk.bob) * 3;
+        context.beginPath(); context.moveTo(sp, -sp); context.lineTo(sp + 6, -sp - 6); context.stroke();
+      }
+      else if (pk.kind === 'cash') { context.fillStyle = '#2ecc71'; rr(-13, -9, 26, 18, 3); context.fill(); context.fillStyle = '#fff'; text('$', 0, 5, 15, '#fff', 'center', true); }
       else if (pk.kind === 'health') { context.fillStyle = '#fff'; rr(-11, -11, 22, 22, 5); context.fill(); context.fillStyle = '#e74c3c'; context.fillRect(-3, -8, 6, 16); context.fillRect(-8, -3, 16, 6); }
       else if (pk.kind === 'ammo') { context.fillStyle = '#f39c12'; rr(-11, -8, 22, 16, 3); context.fill(); context.fillStyle = '#2c3e50'; context.fillRect(-6, -4, 12, 8); }
       else { context.fillStyle = '#3498db'; rr(-12, -8, 24, 16, 4); context.fill(); context.fillStyle = '#fff'; text('🔧', 0, 5, 12, '#fff', 'center'); }
@@ -176,6 +189,42 @@ export function createRenderer(canvas) {
       context.strokeStyle = '#fff'; context.lineWidth = 3;
       context.beginPath(); context.moveTo(pl.x + Math.cos(pl.angle) * 16, pl.y + Math.sin(pl.angle) * 16); context.lineTo(pl.x + Math.cos(pl.angle) * 26, pl.y + Math.sin(pl.angle) * 26); context.stroke();
     }
+    // Police helicopter (4+ stars): flies above the traffic, spotlight on the player.
+    const heli = state.heli;
+    if (heli) {
+      // Ground shadow, offset down-right as if the sun is low in the west.
+      context.fillStyle = 'rgba(0,0,0,0.28)';
+      context.beginPath(); context.ellipse(heli.x + 26, heli.y + 30, 34, 14, 0, 0, Math.PI * 2); context.fill();
+      // Spotlight cone + lit pool on the player.
+      const dx = pl.x - heli.x, dy = pl.y - heli.y;
+      const d = Math.hypot(dx, dy) || 1, nx = dx / d, ny = dy / d, px = -ny, py = nx;
+      context.fillStyle = 'rgba(255,255,240,0.13)';
+      context.beginPath();
+      context.moveTo(heli.x, heli.y);
+      context.lineTo(pl.x + px * 46, pl.y + py * 46);
+      context.lineTo(pl.x - px * 46, pl.y - py * 46);
+      context.closePath(); context.fill();
+      context.fillStyle = 'rgba(255,255,240,0.20)';
+      context.beginPath(); context.arc(pl.x, pl.y, 42, 0, Math.PI * 2); context.fill();
+      context.save(); context.translate(heli.x, heli.y);
+      context.rotate(Math.atan2(dy, dx));
+      // Rotor blur disc + spinning blades.
+      context.fillStyle = 'rgba(255,255,255,0.10)';
+      context.beginPath(); context.arc(0, 0, 40, 0, Math.PI * 2); context.fill();
+      context.strokeStyle = 'rgba(20,20,30,0.75)'; context.lineWidth = 4;
+      const r = heli.rotor;
+      context.beginPath(); context.moveTo(Math.cos(r) * -38, Math.sin(r) * -38); context.lineTo(Math.cos(r) * 38, Math.sin(r) * 38); context.stroke();
+      context.beginPath(); context.moveTo(Math.cos(r + Math.PI / 2) * -38, Math.sin(r + Math.PI / 2) * -38); context.lineTo(Math.cos(r + Math.PI / 2) * 38, Math.sin(r + Math.PI / 2) * 38); context.stroke();
+      // Tail, body, cockpit, blinking beacon.
+      context.fillStyle = '#1c2733'; rr(-34, -5, 22, 10, 4); context.fill();
+      context.fillStyle = '#22303e'; rr(-14, -11, 32, 22, 10); context.fill();
+      context.fillStyle = '#bfe9ff'; rr(6, -7, 10, 14, 4); context.fill();
+      const blink = Math.floor(time * 3) % 2 === 0;
+      context.fillStyle = blink ? '#ff3b30' : '#ffffff';
+      context.beginPath(); context.arc(-16, 0, 4, 0, Math.PI * 2); context.fill();
+      context.restore();
+      text('VCPD', heli.x, heli.y + 4, 10, '#fff', 'center', true);
+    }
     // Sunset glow vignette (screen-space, drawn after restore in draw()).
     context.restore();
   }
@@ -195,6 +244,10 @@ export function createRenderer(canvas) {
     const t = state.missionTarget;
     if (t && !state.over) { context.fillStyle = '#ffc93c'; context.beginPath(); context.arc(mx + t.x * sx, my + t.y * sy, 6, 0, Math.PI * 2); context.fill(); context.strokeStyle = '#fff'; context.lineWidth = 2; context.stroke(); }
     for (const c of state.cars) { if (c.cop) { context.fillStyle = '#3b82f6'; context.fillRect(mx + c.x * sx - 3, my + c.y * sy - 3, 6, 6); } }
+    if (state.heli) {
+      context.fillStyle = '#fff'; context.beginPath(); context.arc(mx + state.heli.x * sx, my + state.heli.y * sy, 4, 0, Math.PI * 2); context.fill();
+      context.strokeStyle = '#2f6fd0'; context.lineWidth = 2; context.stroke();
+    }
     context.fillStyle = '#ff4757'; context.beginPath(); context.arc(mx + state.player.x * sx, my + state.player.y * sy, 5, 0, Math.PI * 2); context.fill();
     context.strokeStyle = '#fff'; context.lineWidth = 2; context.stroke();
     text('N ↑', mx + mw - 8, my + mh - 8, 12, '#fff', 'right', true);
@@ -202,24 +255,27 @@ export function createRenderer(canvas) {
   }
 
   function drawHud(state, muted) {
-    // Top-left status.
-    context.fillStyle = PALETTE.hudBg; rr(14, 14, 300, 108, 12); context.fill();
+    // Top-left status panel — tall enough that the wanted stars sit INSIDE it.
+    context.fillStyle = PALETTE.hudBg; rr(14, 14, 300, 160, 12); context.fill();
     text(`$${state.money.toLocaleString()}`, 30, 48, 30, '#7CFC9A', 'left', true);
     text(`RESPECT ${state.respect}`, 30, 74, 15, PALETTE.muted, 'left', true);
     // Health bar.
     context.fillStyle = 'rgba(255,255,255,0.2)'; rr(30, 84, 180, 12, 6); context.fill();
     context.fillStyle = state.player.health > 40 ? '#2ecc71' : '#e74c3c'; rr(30, 84, 180 * Math.max(0, state.player.health) / 100, 12, 6); context.fill();
     text(`HP ${Math.max(0, Math.round(state.player.health))}`, 220, 96, 14, '#fff', 'left', true);
-    // Wanted stars.
-    text('WANTED', 30, 142, 13, '#ffb3b3', 'left', true);
+    // Wanted stars, inside the panel: label at y 134, stars centred y 142.
+    text('WANTED', 30, 134, 13, '#ffb3b3', 'left', true);
     for (let i = 0; i < 5; i += 1) {
       context.fillStyle = i < state.wanted ? '#ffd700' : 'rgba(255,255,255,0.25)';
-      const sx = 110 + i * 26, sy = 134;
+      const sx = 110 + i * 26, sy = 142;
       context.beginPath();
-      for (let k = 0; k < 5; k += 1) { const a = -Math.PI / 2 + k * (Math.PI * 2 / 5); const r = k % 2 ? 5 : 11; const px = sx + Math.cos(a) * r, py = sy + Math.sin(a) * r; if (k === 0) context.moveTo(px, py); else context.lineTo(px, py); }
+      for (let k = 0; k < 10; k += 1) { const a = -Math.PI / 2 + k * (Math.PI / 5); const r = k % 2 ? 5 : 11; const px = sx + Math.cos(a) * r, py = sy + Math.sin(a) * r; if (k === 0) context.moveTo(px, py); else context.lineTo(px, py); }
       context.closePath(); context.fill();
     }
     if (muted) text('MUTED (M)', 30, 168, 13, '#ccc', 'left');
+    // Hidden packages tracker, tucked under the status panel.
+    context.fillStyle = PALETTE.hudBg; rr(14, 182, 172, 30, 9); context.fill();
+    text(`◆ PACKAGES ${state.hiddenFound}/${state.hiddenTotal}`, 30, 203, 14, '#ffc93c', 'left', true);
     drawMinimap(state);
     // Objective banner.
     if (state.missionText && !state.over) {
@@ -249,7 +305,7 @@ export function createRenderer(canvas) {
         context.fillStyle = car.health > 40 ? '#2ecc71' : '#e74c3c'; rr(VIEW.width - 176, VIEW.height - 86, 148 * Math.max(0, car.health) / 100, 8, 4); context.fill();
       }
     } else {
-      text('SPACE: enter car   •   CLICK / J: shoot   •   E: interact', 16, VIEW.height - 18, 14, 'rgba(255,255,255,0.75)', 'left');
+      text(IS_TOUCH ? TOUCH_HINT : 'SPACE: enter car   •   CLICK / J: shoot   •   E: interact', 16, VIEW.height - 18, 14, 'rgba(255,255,255,0.75)', 'left');
     }
     // Off-screen mission arrow.
     const tgt = state.missionTarget;

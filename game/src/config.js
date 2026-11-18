@@ -11,6 +11,24 @@ export const CAR = { length: 54, width: 28, accel: 420, brake: 620, maxSpeed: 56
 export const WANTED_DECAY = 18; // seconds hidden with no crime before a star drops
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
+// Police helicopter: circles the player once the heat hits 4 stars.
+export const HELI = { radius: 260, orbitSpeed: 0.55, rotorSpeed: 42, spotlight: 190 };
+
+// Hidden packages: 10 golden parcels tucked beside landmarks across the city.
+// Finding one pays $50 and +2 respect; the HUD tracks n/10.
+export const HIDDEN_PACKAGES = [
+  { x: 210, y: 1180, label: 'Pier crates' },
+  { x: 704, y: 640, label: 'Palm Row bench' },
+  { x: 1088, y: 1920, label: 'Arcade alley' },
+  { x: 1472, y: 960, label: 'Hotel gardens' },
+  { x: 1856, y: 1600, label: 'Bank steps' },
+  { x: 2240, y: 640, label: 'Rooftop cafe' },
+  { x: 2624, y: 2240, label: 'Docks container' },
+  { x: 3008, y: 1280, label: 'East market' },
+  { x: 3392, y: 1920, label: 'Beach hut' },
+  { x: 704, y: 2240, label: 'Hideout stash' },
+];
+
 export const PALETTE = {
   sea: '#1b6f8e', seaDeep: '#145a76', sand: '#e8c98f', sandDark: '#d9b878',
   grass: '#4f9e57', grassDark: '#3f8a49', road: '#33363d', roadEdge: '#4a4e57',
@@ -21,10 +39,3 @@ export const PALETTE = {
   hudBg: 'rgba(12,10,24,0.62)', cop: '#2f6fd0', copLight: '#ff3b30',
 };
 
-export const MISSIONS = [
-  { id: 1, name: 'Sunset Taxi', brief: 'Pick up Maya at the pier, then drop her at the Neon Hotel. Drive smooth — she tips for speed.', reward: 150 },
-  { id: 2, name: 'Package Run', brief: 'Collect 3 packages around Palm Row and deliver them to the docks. Watch the clock.', reward: 250 },
-  { id: 3, name: 'Getaway', brief: 'Grab the bag from the arcade and reach the hideout in 75 seconds. The cops will not wait.', reward: 350 },
-  { id: 4, name: 'Lose the Heat', brief: 'You are at 3 stars. Break line of sight and stay hidden until the heat dies down.', reward: 400 },
-  { id: 5, name: 'The Sunset Heist', brief: 'Hit the Coral Bank vault, grab the loot, and escape to the hideout. Finish this and Vice Coast is yours.', reward: 800 },
-];

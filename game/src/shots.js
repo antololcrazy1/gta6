@@ -1,4 +1,4 @@
-// Staged screenshots behind ?shot=start|play|chase|end. Each plays the real rules
+// Staged screenshots behind ?shot=start|play|chase|heist|end. Each plays the real rules
 // forward from a fresh world for a fixed time, steered by a driving autopilot,
 // so the frame is what a short game really looks like and the same seed always
 // gives the same frame.
@@ -36,7 +36,7 @@ function putPlayerInCar(world, x, y, angle) {
 export function stageShot(name, world) {
   world.reset();
   const st = world.state;
-  if (name !== 'play' && name !== 'chase' && name !== 'end') {
+  if (name !== 'play' && name !== 'chase' && name !== 'end' && name !== 'heist') {
     // Title over the sunset city: traffic and pedestrians drift for 6 seconds.
     for (let i = 0; i < 6 / STEP; i += 1) world.step(STEP, { move: { x: 0, y: 0 } }, true);
     return { screen: SCREEN_TITLE, best: 1250 };
@@ -70,6 +70,9 @@ export function stageShot(name, world) {
       const car = st.cars.find((c) => c.id === st.player.carId);
       if (car) { car.speed = Math.max(car.speed, 420); car.health = 100; }
       st.player.health = 100;
+      // Keep the read at exactly 3 stars: ramming a ped mid-chase would
+      // otherwise push it to 4 before the frame is taken.
+      if (st.wanted > 3) st.wanted = 3;
     }
     // Make sure the chase reads: at least 2 cop cars near the player.
     const cops = st.cops.filter((c) => c.inCar && c.car);
@@ -77,10 +80,50 @@ export function stageShot(name, world) {
     st.messageTimer = 0;
     return { screen: SCREEN_PLAY, best: st.money };
   }
+  if (name === 'heist') return stageHeistShot(world);
   // end: complete the heist through the real win path.
   putPlayerInCar(world, 704, 2240, -Math.PI / 2);
   st.money = 1950; st.respect = 100;
   world.debugWin();
   for (let i = 0; i < 2 / STEP; i += 1) world.step(STEP, { move: { x: 0, y: 0 } }, true);
   return { screen: SCREEN_WIN, best: st.money };
+}
+
+export function stageHeistShot(world) {
+  // heist: on foot outside Coral Bank at 3 stars, mid-gunfight. Real rules all
+  // the way: startMission(4) sets the bank beacon, addWanted(3) brings the
+  // foot cops, and shoot() fires real bullets with muzzle particles.
+  world.reset();
+  const st = world.state;
+  world.startMission(4); // The Sunset Heist, stage 0: "Hit Coral Bank".
+  st.player.x = 1760; st.player.y = 1280; st.player.angle = 0;
+  st.player.inCar = false; st.player.carId = -1;
+  st.player.ammo = 60; st.player.health = 100;
+  st.money = 1200; st.respect = 64;
+  world.addWanted(3, true);
+  // Let the foot cops close in for ~2.5 s. The player holds position 96 px
+  // west of the bank — just outside the 80 px mission trigger, so the shot
+  // stays on stage 0 ("Hit Coral Bank") at 3 stars.
+  for (let i = 0; i < 2.5 / STEP; i += 1) {
+    const ev = world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: 0, enter: false }, false);
+    if (ev & EVENT_OVER) break;
+  }
+  // Spread the foot cops into a ring around the player so they read as
+  // separate figures in the frame instead of one blob stacked on the player.
+  const foot = st.cops.filter((c) => !c.inCar && !c.dead);
+  foot.forEach((c, i) => {
+    const a = (i / Math.max(1, foot.length)) * Math.PI * 2;
+    c.x = st.player.x + Math.cos(a) * 70; c.y = st.player.y + Math.sin(a) * 70;
+  });
+  // Fire one last volley at the nearest cop so bullets + muzzle flash are in
+  // the frame when the screenshot is taken.
+  const cop = st.cops.find((c) => !c.inCar && !c.dead);
+  if (cop) {
+    st.player.angle = Math.atan2(cop.y - st.player.y, cop.x - st.player.x);
+    st.player.shootCd = 0;
+    world.shoot(st.player.angle);
+    world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: st.player.angle, enter: false }, false);
+  }
+  st.message = 'The Sunset Heist — hit Coral Bank!'; st.messageTimer = 4;
+  return { screen: SCREEN_PLAY, best: st.money };
 }

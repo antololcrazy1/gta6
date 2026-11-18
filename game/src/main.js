@@ -1,6 +1,8 @@
 // Vice Coast boot + loop. Fixed 1/60 s steps, screens: title, brief, play, paused,
-// over (wasted/busted), win. ?seed=N fixes the city; ?shot=start|play|chase|end
-// stages a screenshot scene and sets window.__shotReady.
+// over (wasted/busted), win. ?seed=N fixes the city; ?shot=start|play|chase|heist|end
+// stages a screenshot scene and sets window.__shotReady. ?shot=heist stages the
+// on-foot Coral Bank shootout (mission 5, 3 stars); the other shots are the
+// title, a taxi drive, a 3-star chase and the win screen.
 import { BEST_KEY, MISSIONS_KEY, STEP, VIEW, WORLD } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld, EVENT_MISSION, EVENT_OVER, EVENT_PICKUP, EVENT_SHOT } from './world.js';
@@ -26,6 +28,14 @@ function saveNum(key, v) { try { window.localStorage.setItem(key, String(v)); } 
 
 function runShot(name) {
   const scene = stageShot(name, world);
+  // Staged pages never boot the game loop, so expose the same test handle the
+  // live game does (state + world + live heli) for the screenshot checks.
+  window.__game = {
+    state: world.state,
+    world,
+    audio,
+    get heli() { return world.state.heli; },
+  };
   let painted = 0;
   function paint() {
     renderer.draw(world.state, scene.screen, scene.best, { time: world.state.elapsed });
@@ -99,6 +109,7 @@ function runGame() {
     const st = world.state;
     audio.engine(st.player.inCar ? st.player.speed : 0, st.player.inCar);
     audio.siren(STEP, st.wanted > 0);
+    audio.rotor(STEP, !!st.heli);
     if (events & EVENT_SHOT) audio.shot();
     if (events & EVENT_PICKUP) audio.pickup();
     if (events & EVENT_MISSION) audio.mission();
@@ -134,6 +145,9 @@ function runGame() {
     world,
     start: startGame,
     audio,
+    // Live helicopter (null below 4 stars); a getter so tests always see the
+    // current one, not a stale snapshot from boot.
+    get heli() { return world.state.heli; },
   };
   announce('Vice Coast. Press Space or click to start.');
   requestAnimationFrame(frame);

@@ -7,6 +7,11 @@ export const ACTION_INTERACT = 8;
 export const ACTION_SHOOT = 16;
 export const ACTION_MUTE = 32;
 
+// Touch devices have no keyboard: the on-foot HUD shows this instead of the
+// key list. (Checked once at load; a desktop browser never matches.)
+export const IS_TOUCH = typeof window !== 'undefined' && 'ontouchstart' in window;
+export const TOUCH_HINT = 'Touch: drag left side to move  •  tap right side to shoot  •  tap a car to enter it';
+
 const KEYMAP = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
   ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',

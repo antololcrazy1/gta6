@@ -1,12 +1,16 @@
-// Vice Coast story: the 5-mission chain and its flow.
+// Vice Coast story: the 7-mission chain and its flow.
 // Pure mission data + the target/start/complete helpers; the world owns the
 // live state object and passes it in, so this file has no browser or drawing.
+import { NIGHT_DROPS } from './config.js';
+
 export const MISSIONS = [
   { id: 1, name: 'Sunset Taxi', brief: 'Pick up Maya at the pier, then drop her at the Neon Hotel. Drive smooth — she tips for speed.', reward: 150 },
   { id: 2, name: 'Package Run', brief: 'Collect 3 packages around Palm Row and deliver them to the docks. Watch the clock.', reward: 250 },
   { id: 3, name: 'Getaway', brief: 'Grab the bag from the arcade and reach the hideout in 75 seconds. The cops will not wait.', reward: 350 },
   { id: 4, name: 'Lose the Heat', brief: 'You are at 3 stars. Break line of sight and stay hidden until the heat dies down.', reward: 400 },
   { id: 5, name: 'The Sunset Heist', brief: 'Hit the Coral Bank vault, grab the loot, and escape to the hideout. Finish this and Vice Coast is yours.', reward: 800 },
+  { id: 6, name: 'Vice Nights', brief: 'Collect 4 night drops, one at each corner of the city, then deliver them to the hideout. It starts hot — 4 stars the moment you begin, heli already up.', reward: 1000 },
+  { id: 7, name: 'Sunset Showdown', brief: 'Reach the Sunset Pier in 75 seconds with 5 stars on you. Finish this and Vice Coast is yours.', reward: 1200 },
 ];
 
 // Fresh per-run mission fields, spread into the world state by createWorld.
@@ -27,6 +31,8 @@ export function missionTargetFor(missionIndex, missionStage, landmarks) {
   if (missionIndex === 2) return missionStage === 0 ? { ...L.arcade, label: 'Grab the bag' } : { ...L.hideout, label: 'Reach the hideout!' };
   if (missionIndex === 3) return { ...L.hideout, label: 'Get to the hideout' };
   if (missionIndex === 4) return missionStage === 0 ? { ...L.bank, label: 'Hit Coral Bank' } : { ...L.hideout, label: 'Escape to the hideout!' };
+  if (missionIndex === 5) return missionStage < 4 ? { ...NIGHT_DROPS[missionStage], label: `Night drop ${missionStage + 1}/4` } : { ...L.hideout, label: 'Deliver to the hideout' };
+  if (missionIndex === 6) return { ...L.pier, label: 'Reach the Sunset Pier' };
   return null;
 }
 
@@ -38,18 +44,21 @@ export function refreshMissionTarget(state, landmarks) {
   state.missionText = `${MISSIONS[m].name} — ${state.missionTarget.label}`;
 }
 
-// How long a mission's clock runs: Package Run 120 s, Getaway 75 s, the rest
-// untimed (0).
+// How long a mission's clock runs: Package Run 120 s, Getaway and Sunset
+// Showdown 75 s, the rest untimed (0).
 export function missionTimerFor(missionIndex) {
-  return missionIndex === 2 ? 75 : missionIndex === 1 ? 120 : 0;
+  return missionIndex === 1 ? 120 : (missionIndex === 2 || missionIndex === 6) ? 75 : 0;
 }
 
 // Begin (or restart) mission i: reset its stage, arm its timer, set the
-// beacon, flash the banner and show the brief. Mission 4 starts at 3 stars.
+// beacon, flash the banner and show the brief. Mission 4 starts at 3 stars,
+// Vice Nights at 4 stars, Sunset Showdown at 5 stars.
 export function startMission(state, i, landmarks, addWanted) {
   state.missionIndex = i; state.missionStage = 0; state.packagesLeft = 3; state.collected = 0;
   state.missionTimer = missionTimerFor(i);
   if (i === 3) addWanted(3, true);
+  if (i === 5) addWanted(4, true);
+  if (i === 6) addWanted(5, true);
   refreshMissionTarget(state, landmarks);
   state.missionFlash = 3;
   state.message = `${MISSIONS[i].name}: ${MISSIONS[i].brief}`; state.messageTimer = 5;

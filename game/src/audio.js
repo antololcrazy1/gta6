@@ -37,6 +37,10 @@ export function createAudio() {
     unlock() { ensure(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
     toggleMute() { muted = !muted; if (engineGain) engineGain.gain.value = 0; return muted; },
     get muted() { return muted; },
+    // True once an AudioContext exists (unlock() called from a user gesture).
+    get unlocked() { return !!ctx; },
+    // Public single-note helper for the radio sequencer (same tone() underneath).
+    note(freq, dur, type, vol) { tone(freq, dur, type, vol); },
     shot() { noise(0.14, 0.28, 2400); tone(180, 0.08, 'square', 0.1, 60); },
     punch() { noise(0.08, 0.2, 700); },
     pickup() { tone(660, 0.09, 'sine', 0.14); setTimeout(() => tone(990, 0.12, 'sine', 0.14), 70); },

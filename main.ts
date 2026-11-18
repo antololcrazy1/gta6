@@ -7,6 +7,7 @@
 // title screen, score, lives and levels, game over and restart, flat colours and no sound. Build
 // your own open-world crime game in its place (three.js or any library you vendor under game/),
 // put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name is the cover) and run it.
+// v3: 7 story missions ending in the Sunset Showdown, plus taxi fares, an in-car radio and an effects layer.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Staged screenshots (shots.json) run newest first: the 3-star chase is the

@@ -1,9 +1,10 @@
 // Vice Coast rules: no drawing, no browser. A 3600x2600 coastal city, traffic and
-// pedestrians, stealable cars, wanted stars and police, a 5-mission story, combat,
+// pedestrians, stealable cars, wanted stars and police, a 7-mission story, combat,
 // pickups, money and respect. step() advances one fixed step and returns event flags.
 import { CAR, HELI, HIDDEN_PACKAGES, PALETTE, PLAYER, STEP, VIEW, WORLD, WANTED_DECAY } from './config.js';
 import { MISSIONS, completeMission as completeMissionFlow, createMissionState, refreshMissionTarget, startMission as startMissionFlow } from './missions.js';
 import { pick, range, shuffle } from './random.js';
+import { createTaxi } from './taxi.js';
 
 export const EVENT_HIT = 1;
 export const EVENT_PICKUP = 2;
@@ -62,7 +63,9 @@ export function createWorld(random) {
     over: null, overReason: '', camera: { x: 0, y: 0 }, arrest: 0, best: 0,
     shotsFired: 0, carsStolen: 0, pedsHit: 0,
     heli: null, hiddenFound: 0, hiddenTotal: HIDDEN_PACKAGES.length,
+    taxi: { waiting: null, active: null, cooldown: 12 },
   };
+  const taxi = createTaxi(random);
 
   function spawnTraffic() {
     cars.length = 0;
@@ -111,7 +114,7 @@ export function createWorld(random) {
 
   // Mission flow lives in missions.js; the world calls it with its live state
   // and landmarks. winGame stays here: it flips the world's over flag.
-  function winGame() { state.over = 'win'; state.overReason = 'You pulled off the Sunset Heist. Vice Coast is yours.'; }
+  function winGame() { state.over = 'win'; state.overReason = 'You pulled off the Sunset Showdown and escaped clean. Vice Coast is yours.'; }
   function addWanted(n, silent) {
     const before = state.wanted;
     state.wanted = clamp(state.wanted + n, 0, 5);
@@ -128,6 +131,8 @@ export function createWorld(random) {
     state.elapsed = 0; state.over = null; state.overReason = ''; state.arrest = 0;
     state.shotsFired = 0; state.carsStolen = 0; state.pedsHit = 0;
     state.heli = null; state.hiddenFound = 0;
+    state.missionsDone = 0; state.collected = 0;
+    taxi.reset(state);
     spawnTraffic(); spawnPeds(); spawnPickups();
     startMissionFlow(state, 0, landmarks, addWanted);
   }
@@ -269,6 +274,7 @@ export function createWorld(random) {
   function updatePeds(dt) {
     for (const p of peds) {
       if (!p.alive) continue;
+      if (p.fare) continue; // a waiting taxi fare stands still for its cab
       p.change -= dt;
       if (p.flee > 0) {
         p.flee -= dt;
@@ -402,6 +408,7 @@ export function createWorld(random) {
     const m = state.missionIndex;
     if (m === 1 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Too slow — packages returned. Try again!'; state.messageTimer = 3; startMissionFlow(state, 1, landmarks, addWanted); return 0; } }
     if (m === 2 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Getaway failed — the hideout moved on. Try again!'; state.messageTimer = 3; startMissionFlow(state, 2, landmarks, addWanted); return 0; } }
+    if (m === 6 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Showdown failed — the pier went quiet. Try again!'; state.messageTimer = 3; startMissionFlow(state, 6, landmarks, addWanted); return 0; } }
     if (m === 3) {
       // Survive until wanted drops to 0.
       if (state.wanted === 0) { completeMissionFlow(state, landmarks, addWanted, winGame); return EVENT_MISSION; }
@@ -420,6 +427,11 @@ export function createWorld(random) {
       } else if (m === 4) {
         if (state.missionStage === 0) { state.missionStage = 1; state.money += 200; addWanted(3, true); state.message = 'Vault loot grabbed! +$200 — escape!'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); }
         else completeMissionFlow(state, landmarks, addWanted, winGame);
+      } else if (m === 5) {
+        if (state.missionStage < 4) { state.missionStage += 1; state.collected += 1; state.message = `Night drop ${state.collected}/4 collected!`; state.messageTimer = 2; burst(t.x, t.y, '#ffc93c', 12, 220); refreshMissionTarget(state, landmarks); }
+        else completeMissionFlow(state, landmarks, addWanted, winGame);
+      } else if (m === 6) {
+        completeMissionFlow(state, landmarks, addWanted, winGame);
       }
       return EVENT_MISSION;
     }
@@ -434,6 +446,7 @@ export function createWorld(random) {
     state.crimeTimer += dt;
     updateTraffic(dt);
     updatePeds(dt);
+    taxi.update(dt, state);
     for (let i = particles.length - 1; i >= 0; i -= 1) {
       const pt = particles[i]; pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt;
       if (pt.life <= 0) particles.splice(i, 1);
@@ -473,7 +486,7 @@ export function createWorld(random) {
     startMission(i) { startMissionFlow(state, i, landmarks, addWanted); },
     completeMission() { completeMissionFlow(state, landmarks, addWanted, winGame); },
     // Staging helpers used by shots.js / tests: real code paths, not shortcuts.
-    debugWin() { state.money = 1950; state.missionsDone = 5; state.missionIndex = 5; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
+    debugWin() { state.money = 4150; state.missionsDone = 7; state.missionIndex = 7; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
     debugChase() { player.x = 1856; player.y = 1280; addWanted(3, true); },
     nearestCar,
   };

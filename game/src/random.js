@@ -11,6 +11,8 @@ export function createRandom(seed) {
 }
 export function pick(random, arr) { return arr[Math.floor(random() * arr.length)]; }
 export function range(random, min, max) { return min + random() * (max - min); }
+// True with probability p on the seeded stream.
+export function chance(random, p) { return random() < p; }
 // Fisher–Yates shuffle, in place, using the same seeded stream so a shuffle
 // is repeatable for a given seed. Returns the array for chaining.
 export function shuffle(random, arr) {

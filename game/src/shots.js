@@ -81,9 +81,9 @@ export function stageShot(name, world) {
     return { screen: SCREEN_PLAY, best: st.money };
   }
   if (name === 'heist') return stageHeistShot(world);
-  // end: complete the heist through the real win path.
+  // end: complete all seven missions through the real win path.
   putPlayerInCar(world, 704, 2240, -Math.PI / 2);
-  st.money = 1950; st.respect = 100;
+  st.money = 4150; st.respect = 100;
   world.debugWin();
   for (let i = 0; i < 2 / STEP; i += 1) world.step(STEP, { move: { x: 0, y: 0 } }, true);
   return { screen: SCREEN_WIN, best: st.money };

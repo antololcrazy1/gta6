@@ -16,15 +16,17 @@ node serve.ts   # then open http://localhost:8080
 
 ## The game
 
-You are a newcomer in **Vice Coast**, a coastal city of neon hotels, a wooden pier, parks, docks and a coral bank. Explore the 3600×2600 city, steal cars, dodge the Vice Coast PD, and run a 5-mission story chain:
+You are a newcomer in **Vice Coast**, a coastal city of neon hotels, a wooden pier, parks, docks and a coral bank. Explore the 3600×2600 city, steal cars, dodge the Vice Coast PD, and run a 7-mission story chain:
 
 1. **Sunset Taxi** — pick up Maya at the pier, drop her at the Neon Hotel ($150)
 2. **Package Run** — collect 3 packages around Palm Row and deliver them to the docks ($250)
 3. **Getaway** — grab the bag from the arcade and reach the hideout in 75 seconds ($350)
 4. **Lose the Heat** — break line of sight at 3 wanted stars until the heat dies down ($400)
 5. **The Sunset Heist** — hit the Coral Bank vault and escape to the hideout ($800)
+6. **Vice Nights** — collect 4 night drops, one at each corner of the city, then deliver them to the hideout; starts hot at 4 stars with the helicopter already up ($1000)
+7. **Sunset Showdown** — reach the Sunset Pier in 75 seconds with 5 stars on you ($1200)
 
-Finish all five and Vice Coast is yours.
+Finish all seven and Vice Coast is yours.
 
 ### Features
 
@@ -32,6 +34,9 @@ Finish all five and Vice Coast is yours.
 - Driving with acceleration, braking, steering, crash damage and a speedometer
 - Wanted system (0–5 stars) that rises on stealing, hitting pedestrians, shooting and cop-killing, and decays when you stay hidden; police cars and foot cops chase, ram and arrest you — and at 4–5 stars a **VCPD helicopter** circles overhead with a spotlight and a rotor thump, tracked on the minimap
 - Hidden packages: 10 golden parcels tucked beside landmarks across the city, each worth $50 and +2 respect, tracked as PACKAGES n/10 in the HUD
+- Taxi fares: a side activity — a waving pedestrian flags you down, you drive them to one of 8 intersections across the city in 45 seconds for $40–$80 and +2 respect
+- In-car radio: four stations (VICE FM, CORAL 88, NIGHT TIDE, PALM 101), each a 16-step bass + lead synth sequencer generated live with WebAudio — Q changes station
+- Effects: tyre skid marks at speed, floating +$n text, muzzle flash and camera shake, explosion fireballs when a run ends wasted, and speed lines at top speed
 - Combat: shoot (mouse / J) or punch when out of ammo, health and ammo pickups, cash, repair and health pickups scattered around the city
 - HUD with money, respect, health, wanted stars, a live minimap (player, cops, mission marker, north), mission objective banner, off-screen mission arrow and timers
 - Title screen, mission briefings, pause, game over (Wasted / Busted) and win screens; best money and missions completed saved to localStorage
@@ -46,6 +51,7 @@ Finish all five and Vice Coast is yours.
 | Space | Enter / exit the nearest car (stealing one raises your wanted level) |
 | Mouse click / J | Shoot toward the mouse |
 | E | Interact |
+| Q | Change radio station |
 | P / Esc | Pause |
 | M | Mute |
 | R | Restart after game over / win |
@@ -57,8 +63,8 @@ Staged by an autopilot playing the real game rules forward from a fresh world (`
 1. `1-chase.jpg` — a 3-star police chase through traffic
 2. `2-play.jpg` — driving the Sunset Taxi mission through traffic
 3. `3-heist.jpg` — the Sunset Heist shootout on foot outside Coral Bank
-4. `4-end.jpg` — the Sunset Heist win screen
+4. `4-end.jpg` — the Sunset Showdown win screen
 
 ## Tech
 
-Vanilla 2D canvas + ES modules, no libraries, no build step. `main.ts` (Node 22, stdlib only) copies `game/` and `screenshots/` to `/output` and writes `dossier.json` via `vendor/makefun-game.ts`.
+Vanilla 2D canvas + ES modules, no libraries, no build step. v3 adds the Vice Nights and Sunset Showdown finale missions (7 total), taxi fares, the in-car radio and the effects layer. `main.ts` (Node 22, stdlib only) copies `game/` and `screenshots/` to `/output` and writes `dossier.json` via `vendor/makefun-game.ts`.

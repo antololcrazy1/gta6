@@ -29,6 +29,14 @@ export const HIDDEN_PACKAGES = [
   { x: 704, y: 2240, label: 'Hideout stash' },
 ];
 
+// Night drops (mission 6, Vice Nights): one per city corner, collected in order.
+export const NIGHT_DROPS = [
+  { x: 320, y: 320 },
+  { x: 3280, y: 320 },
+  { x: 3280, y: 2280 },
+  { x: 320, y: 2280 },
+];
+
 export const PALETTE = {
   sea: '#1b6f8e', seaDeep: '#145a76', sand: '#e8c98f', sandDark: '#d9b878',
   grass: '#4f9e57', grassDark: '#3f8a49', road: '#33363d', roadEdge: '#4a4e57',

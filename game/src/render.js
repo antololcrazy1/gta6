@@ -73,7 +73,7 @@ export function createRenderer(canvas) {
     if (name) text(name, x, y - 20, 12, '#fff', 'center');
   }
 
-  function drawWorld(state, time) {
+  function drawWorld(state, time, fx) {
     const cam = state.camera;
     context.save();
     context.translate(-cam.x, -cam.y);
@@ -165,8 +165,8 @@ export function createRenderer(canvas) {
     }
     // Traffic + player cars.
     for (const c of state.cars) drawCar(c, state.player.inCar && state.player.carId === c.id);
-    // Pedestrians.
-    for (const p of state.peds) if (p.alive) drawPerson(p.x, p.y, p.angle, p.color, false, null);
+    // Pedestrians (a waiting taxi fare stands out with a TAXI tag).
+    for (const p of state.peds) if (p.alive) drawPerson(p.x, p.y, p.angle, p.color, false, p.fare ? 'TAXI' : null);
     // Foot cops.
     for (const cop of state.cops) {
       if (cop.dead || cop.inCar) continue;
@@ -226,6 +226,8 @@ export function createRenderer(canvas) {
       text('VCPD', heli.x, heli.y + 4, 10, '#fff', 'center', true);
     }
     // Sunset glow vignette (screen-space, drawn after restore in draw()).
+    // Cosmetic effects last, in world space: skids, floaters, flashes, booms.
+    if (fx) fx.draw(context);
     context.restore();
   }
 
@@ -254,7 +256,7 @@ export function createRenderer(canvas) {
     text('VICE COAST', mx + 4, my + mh - 8, 11, '#ffd9a0', 'left', true);
   }
 
-  function drawHud(state, muted) {
+  function drawHud(state, muted, radioName) {
     // Top-left status panel — tall enough that the wanted stars sit INSIDE it.
     context.fillStyle = PALETTE.hudBg; rr(14, 14, 300, 160, 12); context.fill();
     text(`$${state.money.toLocaleString()}`, 30, 48, 30, '#7CFC9A', 'left', true);
@@ -276,6 +278,11 @@ export function createRenderer(canvas) {
     // Hidden packages tracker, tucked under the status panel.
     context.fillStyle = PALETTE.hudBg; rr(14, 182, 172, 30, 9); context.fill();
     text(`◆ PACKAGES ${state.hiddenFound}/${state.hiddenTotal}`, 30, 203, 14, '#ffc93c', 'left', true);
+    // Radio station, under the packages pill (Q changes station).
+    if (radioName) {
+      context.fillStyle = PALETTE.hudBg; rr(14, 220, 272, 30, 9); context.fill();
+      text(`♪ ${radioName} • Q to change station`, 30, 241, 14, '#ffd9a0', 'left', true);
+    }
     drawMinimap(state);
     // Objective banner.
     if (state.missionText && !state.over) {
@@ -285,8 +292,8 @@ export function createRenderer(canvas) {
       text(state.missionText, VIEW.width / 2, 43, 18, state.missionFlash > 0 ? '#1a1a2e' : '#fff7e8', 'center', true);
     }
     // Mission progress + timer.
-    text(`MISSION ${Math.min(state.missionIndex + 1, 5)}/5  •  AMMO ${state.player.ammo}`, VIEW.width / 2, 78, 15, '#fff', 'center', true);
-    if (state.missionTimer > 0 && state.missionIndex < 5) {
+    text(`MISSION ${Math.min(state.missionIndex + 1, MISSIONS.length)}/${MISSIONS.length}  •  AMMO ${state.player.ammo}`, VIEW.width / 2, 78, 15, '#fff', 'center', true);
+    if (state.missionTimer > 0 && state.missionIndex < MISSIONS.length) {
       text(`⏱ ${Math.ceil(state.missionTimer)}s`, VIEW.width / 2, 104, 22, state.missionTimer < 15 ? '#ff6b6b' : '#ffc93c', 'center', true);
     }
     if (state.messageTimer > 0 && state.message) {
@@ -337,10 +344,14 @@ export function createRenderer(canvas) {
   function draw(state, screen, best, extra) {
     const time = (extra && extra.time) || 0;
     const muted = extra && extra.muted;
+    const fx = extra && extra.effects;
+    const radioName = extra && extra.radio;
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.fillStyle = '#14101f'; context.fillRect(0, 0, canvas.width, canvas.height);
     context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
-    drawWorld(state, time);
+    // Camera shake from the effects layer (muzzle flash, damage, explosions).
+    if (fx && fx.shake > 0.2) context.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
+    drawWorld(state, time, fx);
     // Sunset gradient overlay for warmth.
     const grad = context.createLinearGradient(0, 0, 0, VIEW.height);
     grad.addColorStop(0, 'rgba(255,122,89,0.10)'); grad.addColorStop(0.6, 'rgba(255,122,89,0.03)'); grad.addColorStop(1, 'rgba(43,16,80,0.14)');
@@ -353,30 +364,30 @@ export function createRenderer(canvas) {
       text('★  SUNSET CITY  •  STEAL  •  DRIVE  •  ESCAPE  ★', VIEW.width / 2, 156, 21, SUNSET[2], 'center', true);
       drawPanel('An open-world crime story', [
         'Explore a sun-soaked coastal city on foot and by car.',
-        'Steal cars, dodge the Vice Coast PD, and run 5 story missions.',
+        'Steal cars, dodge the Vice Coast PD, and run 7 story missions.',
         'WASD move  •  SPACE enter car  •  CLICK / J shoot  •  SHIFT sprint',
-        'P pause  •  M mute  •  Your best money is saved',
+        'P pause  •  M mute  •  Q radio  •  Your best money is saved',
         best > 0 ? `Best money so far: $${best.toLocaleString()}` : 'First time in Vice Coast? The pier is a good place to start.',
       ], 'Press SPACE or click to start', '#ff9a56', 55);
       return;
     }
-    drawHud(state, muted);
+    drawHud(state, muted, radioName);
     if (screen === SCREEN_BRIEF) {
-      const m = MISSIONS[Math.min(state.missionIndex, 4)];
+      const m = MISSIONS[Math.min(state.missionIndex, MISSIONS.length - 1)];
       drawPanel(`Mission ${m.id}: ${m.name}`, [m.brief, `Reward: $${m.reward}`, 'Get in a car — Vice Coast is big.'], 'Press ENTER to start the mission', '#ffc93c');
     } else if (screen === SCREEN_PAUSED) {
-      drawPanel('Paused', ['The city waits for you.', `Money $${state.money.toLocaleString()}  •  Mission ${Math.min(state.missionIndex + 1, 5)}/5`, 'M mute  •  R restart run'], 'Press P to resume', '#7ec8ff');
+      drawPanel('Paused', ['The city waits for you.', `Money $${state.money.toLocaleString()}  •  Mission ${Math.min(state.missionIndex + 1, MISSIONS.length)}/${MISSIONS.length}`, 'M mute  •  R restart run'], 'Press P to resume', '#7ec8ff');
     } else if (screen === SCREEN_OVER) {
       drawPanel(state.over === 'busted' ? 'BUSTED!' : 'WASTED!', [
         state.overReason || 'The run is over.',
-        `Money earned: $${state.money.toLocaleString()}  •  Missions done: ${state.missionsDone}/5`,
+        `Money earned: $${state.money.toLocaleString()}  •  Missions done: ${state.missionsDone}/${MISSIONS.length}`,
         `Best money: $${Math.max(best, state.money).toLocaleString()}`,
       ], 'Press R or SPACE to play again', '#ff6b6b');
     } else if (screen === SCREEN_WIN) {
       drawPanel('VICE COAST IS YOURS!', [
-        'You pulled off the Sunset Heist and escaped clean.',
+        'You pulled off the Sunset Showdown and escaped clean.',
         `Final take: $${state.money.toLocaleString()}  •  Respect ${state.respect}`,
-        'All 5 missions complete. Free roam continues — enjoy the sunset.',
+        `All ${MISSIONS.length} missions complete. Free roam continues — enjoy the sunset.`,
       ], 'Press R or SPACE to play again', '#ffc93c');
     }
   }

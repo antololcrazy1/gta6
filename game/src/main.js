@@ -6,8 +6,10 @@
 import { BEST_KEY, MISSIONS_KEY, STEP, VIEW, WORLD } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld, EVENT_MISSION, EVENT_OVER, EVENT_PICKUP, EVENT_SHOT } from './world.js';
-import { ACTION_CONFIRM, ACTION_ENTER, ACTION_INTERACT, ACTION_MUTE, ACTION_PAUSE, ACTION_SHOOT, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_ENTER, ACTION_INTERACT, ACTION_MUTE, ACTION_PAUSE, ACTION_RADIO, ACTION_SHOOT, createInput } from './input.js';
 import { createAudio } from './audio.js';
+import { createRadio } from './radio.js';
+import { createEffects } from './effects.js';
 import { createRenderer, SCREEN_BRIEF, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './render.js';
 import { stageShot } from './shots.js';
 
@@ -22,6 +24,8 @@ const status = document.getElementById('status');
 const world = createWorld(createRandom(seed));
 const renderer = createRenderer(canvas);
 const audio = createAudio();
+const radio = createRadio(audio);
+const effects = createEffects();
 
 function readNum(key) { try { return Number.parseInt(window.localStorage.getItem(key) ?? '0', 10) || 0; } catch { return 0; } }
 function saveNum(key, v) { try { window.localStorage.setItem(key, String(v)); } catch { /* private mode */ } }
@@ -82,6 +86,7 @@ function runGame() {
   function handleActions() {
     const actions = input.takeActions();
     if (actions & ACTION_MUTE) { const m = audio.toggleMute(); announce(m ? 'Muted.' : 'Sound on.'); }
+    if (actions & ACTION_RADIO) { const name = radio.next(); announce(`Radio: ${name}.`); }
     if (actions & ACTION_SHOOT) pendingShoot = true;
     if (actions & ACTION_ENTER) pendingEnter = true;
     if (screen === SCREEN_TITLE && (actions & (ACTION_CONFIRM | ACTION_SHOOT))) { startGame(); pendingShoot = false; pendingEnter = false; return; }
@@ -107,6 +112,8 @@ function runGame() {
     pendingShoot = false; pendingEnter = false;
     const events = world.step(STEP, ctrl, false);
     const st = world.state;
+    effects.update(STEP, st);
+    radio.tick(STEP);
     audio.engine(st.player.inCar ? st.player.speed : 0, st.player.inCar);
     audio.siren(STEP, st.wanted > 0);
     audio.rotor(STEP, !!st.heli);
@@ -115,8 +122,10 @@ function runGame() {
     if (events & EVENT_MISSION) audio.mission();
     if (st.wanted > prevWanted) audio.siren(0, true);
     prevWanted = st.wanted;
-    if (events & EVENT_OVER) endRun();
-    else if (st.over) endRun();
+    if (events & EVENT_OVER) {
+      if (st.over === 'wasted') effects.explode(st.player.x, st.player.y);
+      endRun();
+    } else if (st.over) endRun();
   }
 
   function frame(now) {
@@ -127,7 +136,7 @@ function runGame() {
     if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
       while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) { step(); accumulator -= STEP; }
     } else accumulator = 0;
-    renderer.draw(world.state, screen, best, { time, muted: audio.muted });
+    renderer.draw(world.state, screen, best, { time, muted: audio.muted, effects, radio: radio.name() });
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -145,6 +154,8 @@ function runGame() {
     world,
     start: startGame,
     audio,
+    radio,
+    effects,
     // Live helicopter (null below 4 stars); a getter so tests always see the
     // current one, not a stale snapshot from boot.
     get heli() { return world.state.heli; },

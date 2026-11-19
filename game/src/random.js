@@ -9,7 +9,14 @@ export function createRandom(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+// Pick one element of an array on the seeded stream.
 export function pick(random, arr) { return arr[Math.floor(random() * arr.length)]; }
+// Pick n distinct elements (a shuffled draw, no repeats) on the seeded stream.
+export function pickN(random, arr, n) {
+  const copy = arr.slice();
+  shuffle(random, copy);
+  return copy.slice(0, Math.min(n, copy.length));
+}
 export function range(random, min, max) { return min + random() * (max - min); }
 // True with probability p on the seeded stream.
 export function chance(random, p) { return random() < p; }

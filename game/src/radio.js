@@ -1,6 +1,7 @@
-// In-car radio: four stations, each a 16-step bass + lead sequencer.
+// In-car radio: five stations, each a 16-step bass + lead sequencer.
 // Notes are MIDI numbers (0 = rest), played through audio.note() — no audio
 // files, no network. Silent while muted or before the audio unlocks.
+// v5 adds SUNSET 99, a slow chillwave station for night driving.
 const STATIONS = [
   {
     name: 'VICE FM', tag: 'sunset synth', bpm: 104,
@@ -25,6 +26,12 @@ const STATIONS = [
     bassWave: 'triangle', bassVol: 0.11, leadWave: 'square', leadVol: 0.05,
     bass: [48, 0, 52, 0, 55, 0, 52, 0, 48, 0, 52, 0, 57, 0, 55, 52],
     lead: [72, 0, 76, 79, 0, 76, 0, 72, 74, 0, 76, 0, 79, 0, 81, 0],
+  },
+  {
+    name: 'SUNSET 99', tag: 'chillwave', bpm: 80,
+    bassWave: 'sine', bassVol: 0.11, leadWave: 'triangle', leadVol: 0.06,
+    bass: [43, 0, 0, 0, 43, 0, 0, 0, 41, 0, 0, 0, 45, 0, 0, 0],
+    lead: [67, 0, 71, 0, 74, 0, 71, 0, 69, 0, 72, 0, 76, 0, 74, 0],
   },
 ];
 

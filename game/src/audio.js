@@ -1,7 +1,8 @@
 // Tiny WebAudio synth: no audio files, everything is oscillators + noise.
 // Engine hum, siren, gunshot, pickup blip, mission jingle, crash thud.
+// v5 adds a night ambience (soft crickets + wind) and a gang drive-by burst.
 export function createAudio() {
-  let ctx = null; let muted = false; let engineOsc = null; let engineGain = null; let sirenTimer = 0; let rotorTimer = 0;
+  let ctx = null; let muted = false; let engineOsc = null; let engineGain = null; let sirenTimer = 0; let rotorTimer = 0; let nightTimer = 0;
   function ensure() {
     if (ctx) return ctx;
     try {
@@ -58,6 +59,23 @@ export function createAudio() {
       if (!ensure() || muted) return;
       rotorTimer += dt;
       if (on && rotorTimer > 0.09) { rotorTimer = 0; noise(0.06, 0.12, 300); tone(55, 0.07, 'sine', 0.08, 42); }
+    },
+    // Night ambience: a soft cricket chirp every couple of seconds plus a
+    // low wind wash, only while the in-game clock says night.
+    nightAmbience(dt, on) {
+      if (!ensure() || muted) return;
+      nightTimer += dt;
+      if (on && nightTimer > 2.2) {
+        nightTimer = 0;
+        tone(4200, 0.12, 'sine', 0.015);
+        setTimeout(() => tone(3900, 0.1, 'sine', 0.012), 140);
+        noise(0.5, 0.015, 400);
+      }
+    },
+    // Gang drive-by: three fast shots in a row, lower and rougher than the
+    // player's pistol.
+    driveby() {
+      [0, 90, 180].forEach((delay) => setTimeout(() => { noise(0.1, 0.2, 1800); tone(140, 0.07, 'square', 0.08, 50); }, delay));
     },
     engine(speed, inCar) {
       if (!ensure()) return;

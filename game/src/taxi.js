@@ -1,10 +1,11 @@
 // Taxi fares: a side activity on top of the story missions. A random
-// pedestrian waves for a cab; pick them up in a car, drive them to one of 8
+// pedestrian waves for a cab; pick them up in a car, drive them to one of 9
 // road intersections across the city within 45 seconds, and get paid $40–$80
 // plus respect. Pure rules, no drawing — the renderer marks the waiting fare.
+// v5 adds a ninth destination on Palm Row west.
 import { pick } from './random.js';
 
-// 8 fixed road intersections spread across the city (ROADS_V x ROADS_H).
+// 9 fixed road intersections spread across the city (ROADS_V x ROADS_H).
 const DESTINATIONS = [
   { x: 320, y: 320, label: 'Northwest corner' },
   { x: 3280, y: 320, label: 'Northeast corner' },
@@ -14,6 +15,7 @@ const DESTINATIONS = [
   { x: 2240, y: 1600, label: 'Midtown' },
   { x: 1088, y: 1920, label: 'Arcade district' },
   { x: 2624, y: 640, label: 'Neon Hotel' },
+  { x: 704, y: 960, label: 'Palm Row west' },
 ];
 const PAYS = [40, 50, 60, 80];
 const PICKUP_DIST = 70;

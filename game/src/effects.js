@@ -1,8 +1,9 @@
 // Cosmetic effects: tyre skid marks, floating cash text, muzzle flash and
 // camera shake, explosions and speed lines. Purely cosmetic — this module
 // reads world state and never writes it, so it cannot change the rules.
+// v5 adds rain splashes that kick up behind a fast car on wet roads.
 export function createEffects() {
-  const skids = []; const floaters = []; const flashes = []; const booms = []; const streaks = [];
+  const skids = []; const floaters = []; const flashes = []; const booms = []; const streaks = []; const splashes = [];
   let shake = 0; let lastMoney = 0; let lastShots = 0; let lastHealth = 100;
 
   function addShake(n) { shake = Math.min(14, shake + n); }
@@ -21,8 +22,20 @@ export function createEffects() {
     addShake(12);
   }
 
+  // A small rain splash where a tyre throws up water.
+  function splash(x, y) {
+    for (let i = 0; i < 3; i += 1) {
+      const a = Math.random() * Math.PI * 2;
+      splashes.push({
+        x, y, vx: Math.cos(a) * 40, vy: Math.sin(a) * 40 - 30,
+        life: 0.3 + Math.random() * 0.2, max: 0.5, size: 2 + Math.random() * 2, color: '#bcd6ff',
+      });
+    }
+  }
+
   function update(dt, state) {
     const p = state.player;
+    const raining = state.weather && state.weather.raining;
     if (p.inCar) {
       const car = state.cars.find((c) => c.id === p.carId);
       if (car) {
@@ -32,6 +45,10 @@ export function createEffects() {
           const px = -Math.sin(car.angle), py = Math.cos(car.angle);
           skids.push({ x: bx + px * 10, y: by + py * 10, x2: bx - px * 10, y2: by - py * 10, life: 6, max: 6 });
           if (skids.length > 140) skids.splice(0, skids.length - 140);
+        }
+        // Rain splashes behind the rear wheels on wet roads.
+        if (raining && Math.abs(car.speed) > 200 && Math.random() < 0.5) {
+          splash(car.x - Math.cos(car.angle) * 24, car.y - Math.sin(car.angle) * 24);
         }
         // Speed lines when really flying.
         if (Math.abs(car.speed) > 500) {
@@ -59,7 +76,7 @@ export function createEffects() {
     lastHealth = p.health;
     shake = Math.max(0, shake - dt * 30);
     // Decay the short-lived lists; fireballs drift while they burn.
-    for (const arr of [floaters, flashes, booms, streaks]) {
+    for (const arr of [floaters, flashes, booms, streaks, splashes]) {
       for (let i = arr.length - 1; i >= 0; i -= 1) {
         const it = arr[i]; it.life -= dt;
         if (it.vx !== undefined) { it.x += it.vx * dt; it.y += it.vy * dt; }
@@ -95,6 +112,11 @@ export function createEffects() {
       ctx.fillStyle = b.color;
       ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill();
     }
+    for (const s of splashes) {
+      ctx.globalAlpha = Math.max(0, s.life / s.max) * 0.7;
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.globalAlpha = 1;
     ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2;
     for (const s of streaks) {
@@ -107,8 +129,8 @@ export function createEffects() {
   }
 
   function debug() {
-    return { skids: skids.length, floaters: floaters.length, flashes: flashes.length, booms: booms.length, streaks: streaks.length, shake: Math.round(shake * 10) / 10, shots: lastShots };
+    return { skids: skids.length, floaters: floaters.length, flashes: flashes.length, booms: booms.length, streaks: streaks.length, splashes: splashes.length, shake: Math.round(shake * 10) / 10, shots: lastShots };
   }
 
-  return { update, draw, explode, debug, get shake() { return shake; } };
+  return { update, draw, explode, splash, debug, get shake() { return shake; } };
 }

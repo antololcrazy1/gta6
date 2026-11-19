@@ -1,8 +1,18 @@
-// Vice Coast rules: no drawing, no browser. A 3600x2600 coastal city, traffic and
-// pedestrians, stealable cars, wanted stars and police, a 7-mission story, combat,
-// pickups, money and respect. step() advances one fixed step and returns event flags.
-import { CAR, HELI, HIDDEN_PACKAGES, PALETTE, PLAYER, STEP, VIEW, WORLD, WANTED_DECAY } from './config.js';
+// Vice Coast rules v5: no drawing, no browser. A 3600x2600 coastal city in
+// four districts, traffic and pedestrians, stealable cars, wanted stars and
+// police, a 10-mission story, combat, pickups, money and respect — plus a
+// day/night weather cycle, a rival gang holding turf, a shop, phone side
+// jobs and save/continue. step() advances one fixed step and returns event
+// flags. The public API the tests use is unchanged: createWorld, world.step,
+// world.startMission, world.completeMission, world.debugWin, world.debugChase,
+// world.addWanted, world.shoot, and state/screen/radio/effects on window.__game.
+import { CAR, HELI, HIDDEN_PACKAGES, PALETTE, PLAYER, STEP, VIEW, WORLD, WANTED_DECAY, districtAt } from './config.js';
 import { MISSIONS, completeMission as completeMissionFlow, createMissionState, refreshMissionTarget, startMission as startMissionFlow } from './missions.js';
+import { GANG_TURF, createGang } from './gang.js';
+import { createWeather } from './weather.js';
+import { createShop } from './shop.js';
+import { createPhone } from './phone.js';
+import { saveGame } from './save.js';
 import { pick, range, shuffle } from './random.js';
 import { createTaxi } from './taxi.js';
 
@@ -18,6 +28,7 @@ export const ROADS_H = [320, 640, 960, 1280, 1600, 1920, 2240];
 const CAR_COLORS = ['#e74c3c', '#f1c40f', '#3498db', '#ecf0f1', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#ff6b9d', '#7f8c8d'];
 const PED_COLORS = ['#ff9f43', '#48dbfb', '#1dd1a1', '#f368e0', '#ff6b6b', '#c8d64f', '#a29bfe', '#fd79a8'];
 const NAMES = ['Maya', 'Rico', 'Lena', 'Dario', 'Sofia', 'Marco', 'Nina', 'Tomas'];
+const TIMED_MISSIONS = [1, 2, 6, 7, 9]; // missions whose clock can run out
 
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
@@ -25,6 +36,13 @@ function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
 function normAngle(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
 
 export function createWorld(random) {
+  // ---- subsystem controllers (pure rules, owned by the world) ----
+  const weather = createWeather(random);
+  const gang = createGang(random);
+  const shop = createShop();
+  const phone = createPhone(random);
+  const taxi = createTaxi(random);
+
   // ---- static city ----
   const buildings = []; const parks = []; const trees = [];
   for (let i = 0; i < ROADS_V.length - 1; i += 1) {
@@ -44,6 +62,7 @@ export function createWorld(random) {
   }
   const landmarks = {
     pier: { x: 210, y: 1280, label: 'Sunset Pier' },
+    boat: { x: 110, y: 1280, label: 'Pier boat' },
     hotel: { x: 2624, y: 640, label: 'Neon Hotel' },
     docks: { x: 3300, y: 2240, label: 'Coral Docks' },
     arcade: { x: 1088, y: 960, label: 'Pixel Arcade' },
@@ -53,10 +72,11 @@ export function createWorld(random) {
   };
 
   // ---- dynamic state ----
-  const player = { x: 320, y: 1280, angle: 0, health: PLAYER.health, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0 };
+  const player = { x: 320, y: 1280, angle: 0, health: PLAYER.health, armor: 0, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0 };
   const cars = []; const peds = []; const cops = []; const bullets = []; const pickups = []; const particles = [];
+  const gangCars = [];
   const state = {
-    player, cars, peds, cops, bullets, pickups, particles, buildings, parks, trees, landmarks,
+    player, cars, peds, cops, bullets, pickups, particles, gangCars, buildings, parks, trees, landmarks,
     ...createMissionState(),
     money: 0, respect: 0, wanted: 0, wantedTimer: 0, crimeTimer: 99, elapsed: 0,
     message: '', messageTimer: 0,
@@ -64,9 +84,47 @@ export function createWorld(random) {
     shotsFired: 0, carsStolen: 0, pedsHit: 0,
     heli: null, hiddenFound: 0, hiddenTotal: HIDDEN_PACKAGES.length,
     taxi: { waiting: null, active: null, cooldown: 12 },
+    gang: { kills: 0, respawn: 0 },
+    weather: weather.data, shop: shop.data, phone: phone.data,
+    district: 'Beach', districtTimer: 0, drivebyAt: -1,
   };
-  const taxi = createTaxi(random);
 
+  // ---- small shared helpers ----
+  function burst(x, y, color, n, speed) {
+    for (let i = 0; i < n; i += 1) {
+      const a = random() * Math.PI * 2;
+      particles.push({ x, y, vx: Math.cos(a) * range(random, 20, speed), vy: Math.sin(a) * range(random, 20, speed), life: range(random, 0.3, 0.8), max: 0.8, color, size: range(random, 2, 5) });
+    }
+  }
+  // Armor absorbs damage first, then health. Returns the health lost.
+  function hurtPlayer(amount) {
+    let left = amount;
+    if (player.armor > 0) { const absorbed = Math.min(player.armor, left); player.armor -= absorbed; left -= absorbed; }
+    player.health -= left;
+    return left;
+  }
+  function collideBuildings(x, y, r) {
+    for (const b of buildings) {
+      const cx = clamp(x, b.x, b.x + b.w), cy = clamp(y, b.y, b.y + b.h);
+      const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+      if (d2 < r * r) {
+        const d = Math.sqrt(d2) || 0.01;
+        return { x: cx + (dx / d) * r, y: cy + (dy / d) * r, hit: true, nx: dx / d, ny: dy / d };
+      }
+    }
+    return { x, y, hit: false, nx: 0, ny: 0 };
+  }
+  function nearestCar(maxD) {
+    let best = null; let bd = maxD;
+    for (const c of cars) {
+      if (c.cop) continue;
+      const d = dist(player.x, player.y, c.x, c.y);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
+  }
+
+  // ---- spawns ----
   function spawnTraffic() {
     cars.length = 0;
     for (let i = 0; i < 26; i += 1) {
@@ -114,7 +172,7 @@ export function createWorld(random) {
 
   // Mission flow lives in missions.js; the world calls it with its live state
   // and landmarks. winGame stays here: it flips the world's over flag.
-  function winGame() { state.over = 'win'; state.overReason = 'You pulled off the Sunset Showdown and escaped clean. Vice Coast is yours.'; }
+  function winGame() { state.over = 'win'; state.overReason = 'You pulled off the Vice Coast Finale and escaped clean. Vice Coast is yours.'; }
   function addWanted(n, silent) {
     const before = state.wanted;
     state.wanted = clamp(state.wanted + n, 0, 5);
@@ -122,47 +180,49 @@ export function createWorld(random) {
     if (state.wanted > before && !silent) { state.message = `Wanted level ${state.wanted}! Lose the cops!`; state.messageTimer = 3; }
     return state.wanted > before;
   }
+  function completeMission() {
+    completeMissionFlow(state, landmarks, addWanted, winGame);
+    saveGame(state); // autosave on every mission completion
+  }
+  function startMission(i) {
+    startMissionFlow(state, i, landmarks, addWanted);
+    if (i === 8) gang.ensureTurfCars(state, 0, 3);
+  }
 
   function reset() {
-    player.x = 320; player.y = 1280; player.angle = 0; player.health = PLAYER.health; player.ammo = 30;
+    player.x = 320; player.y = 1280; player.angle = 0; player.health = PLAYER.health; player.armor = 0; player.ammo = 30;
     player.inCar = false; player.carId = -1; player.invuln = 0; player.speed = 0;
     bullets.length = 0; particles.length = 0; cops.length = 0;
     state.money = 0; state.respect = 0; state.wanted = 0; state.wantedTimer = 0; state.crimeTimer = 99;
     state.elapsed = 0; state.over = null; state.overReason = ''; state.arrest = 0;
     state.shotsFired = 0; state.carsStolen = 0; state.pedsHit = 0;
     state.heli = null; state.hiddenFound = 0;
-    state.missionsDone = 0; state.collected = 0;
+    state.missionsDone = 0; state.collected = 0; state.district = 'Beach'; state.districtTimer = 0;
+    state.drivebyAt = -1;
+    weather.reset();
+    phone.reset();
+    shop.data.open = false; shop.data.near = false;
     taxi.reset(state);
+    gang.reset(state);
     spawnTraffic(); spawnPeds(); spawnPickups();
     startMissionFlow(state, 0, landmarks, addWanted);
   }
+  // Continue from a save: fresh city, then restore money/respect/progress and
+  // start at the next mission (or free roam if all ten are done).
+  function continueSave(data) {
+    reset();
+    state.money = data.money || 0; state.respect = data.respect || 0;
+    state.best = data.best || 0;
+    state.missionsDone = data.missionsDone || 0;
+    if (state.missionsDone >= MISSIONS.length) {
+      state.missionIndex = MISSIONS.length; state.missionTarget = null;
+      state.missionText = 'Vice Coast is yours. Free roam!';
+    } else {
+      startMissionFlow(state, state.missionsDone, landmarks, addWanted);
+    }
+  }
 
-  function collideBuildings(x, y, r) {
-    for (const b of buildings) {
-      const cx = clamp(x, b.x, b.x + b.w), cy = clamp(y, b.y, b.y + b.h);
-      const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
-      if (d2 < r * r) {
-        const d = Math.sqrt(d2) || 0.01;
-        return { x: cx + (dx / d) * r, y: cy + (dy / d) * r, hit: true, nx: dx / d, ny: dy / d };
-      }
-    }
-    return { x, y, hit: false, nx: 0, ny: 0 };
-  }
-  function burst(x, y, color, n, speed) {
-    for (let i = 0; i < n; i += 1) {
-      const a = random() * Math.PI * 2;
-      particles.push({ x, y, vx: Math.cos(a) * range(random, 20, speed), vy: Math.sin(a) * range(random, 20, speed), life: range(random, 0.3, 0.8), max: 0.8, color, size: range(random, 2, 5) });
-    }
-  }
-  function nearestCar(maxD) {
-    let best = null; let bd = maxD;
-    for (const c of cars) {
-      if (c.cop) continue;
-      const d = dist(player.x, player.y, c.x, c.y);
-      if (d < bd) { bd = d; best = c; }
-    }
-    return best;
-  }
+  // ---- player ----
   function enterCar() {
     if (player.inCar) {
       const car = cars.find((c) => c.id === player.carId);
@@ -185,6 +245,7 @@ export function createWorld(random) {
       const px = player.x + Math.cos(aimAngle) * 34, py = player.y + Math.sin(aimAngle) * 34;
       for (const p of peds) if (p.alive && dist(px, py, p.x, p.y) < 34) { p.health -= 25; p.flee = 3; if (p.health <= 0) { p.alive = false; addWanted(1); } }
       for (const c of cops) if (dist(px, py, c.x, c.y) < 34) { c.health -= 25; if (c.health <= 0) c.dead = true; addWanted(1); }
+      for (const g of gangCars) if (dist(px, py, g.x, g.y) < 34) { g.health -= 25; if (g.health <= 0) gang.destroyCar(state, g, { burst, onGangKill: () => phone.onCarDestroyed(state) }); }
       return EVENT_HIT;
     }
     player.shootCd = 0.22; player.ammo -= 1; state.shotsFired += 1;
@@ -204,11 +265,13 @@ export function createWorld(random) {
       if (!car) { player.inCar = false; return; }
       const throttle = ctrl.move.y < 0 ? 1 : ctrl.move.y > 0 ? -0.7 : 0; // up = gas
       const steer = ctrl.move.x;
-      if (throttle > 0) car.speed += CAR.accel * dt;
+      // Rain makes the roads slick: slightly less grip, a touch less turn.
+      const grip = state.weather.raining ? 0.82 : 1;
+      if (throttle > 0) car.speed += CAR.accel * dt * grip;
       else if (throttle < 0) car.speed -= (car.speed > 0 ? CAR.brake : CAR.accel * 0.6) * dt;
       else car.speed *= Math.pow(0.4, dt);
       car.speed = clamp(car.speed, -CAR.reverse, CAR.maxSpeed);
-      const turnRate = CAR.turn * clamp(Math.abs(car.speed) / 220, 0, 1) * (car.speed >= 0 ? 1 : -1);
+      const turnRate = CAR.turn * grip * clamp(Math.abs(car.speed) / 220, 0, 1) * (car.speed >= 0 ? 1 : -1);
       car.angle += steer * turnRate * dt;
       const nx = car.x + Math.cos(car.angle) * car.speed * dt;
       const ny = car.y + Math.sin(car.angle) * car.speed * dt;
@@ -237,7 +300,7 @@ export function createWorld(random) {
       }
       player.x = car.x; player.y = car.y; player.angle = car.angle; player.speed = car.speed;
       if (Math.abs(car.speed) > 300 && random() < 0.3) particles.push({ x: car.x - Math.cos(car.angle) * 24, y: car.y - Math.sin(car.angle) * 24, vx: 0, vy: 0, life: 0.4, max: 0.4, color: '#cfd8dc', size: 4 });
-      if (car.health <= 0) { burst(car.x, car.y, '#ff5722', 24, 320); cars.splice(cars.indexOf(car), 1); player.inCar = false; player.health -= 20; player.invuln = 1; }
+      if (car.health <= 0) { burst(car.x, car.y, '#ff5722', 24, 320); cars.splice(cars.indexOf(car), 1); player.inCar = false; hurtPlayer(20); player.invuln = 1; }
       return;
     }
     // On foot.
@@ -255,6 +318,7 @@ export function createWorld(random) {
     player.x = clamp(hit.x, 140, WORLD.width - 20); player.y = clamp(hit.y, 60, WORLD.height - 20);
   }
 
+  // ---- traffic, peds, cops, heli ----
   function updateTraffic(dt) {
     for (const c of cars) {
       if (!c.traffic || c.cop) continue;
@@ -335,7 +399,7 @@ export function createWorld(random) {
             const pc = cars.find((c) => c.id === player.carId);
             if (pc) { pc.health -= 8 * dt; pc.speed *= 0.99; burst(player.x, player.y, '#ff5252', 3, 160); }
           } else if (player.invuln <= 0) {
-            player.health -= 30 * dt; player.invuln = 0.4; cop.arrestT += dt;
+            hurtPlayer(30 * dt); player.invuln = 0.4; cop.arrestT += dt;
             if (cop.arrestT > 1.2) { state.over = 'busted'; state.overReason = 'Busted! The Vice Coast PD caught you.'; }
           }
         } else cop.arrestT = 0;
@@ -344,9 +408,20 @@ export function createWorld(random) {
         const sp = 200 + state.wanted * 18;
         cop.x += Math.cos(a) * sp * dt; cop.y += Math.sin(a) * sp * dt;
         if (dist(cop.x, cop.y, player.x, player.y) < 30 && !player.inCar && player.invuln <= 0) {
-          player.health -= 26 * dt; player.invuln = 0.4; cop.arrestT += dt;
+          hurtPlayer(26 * dt); player.invuln = 0.4; cop.arrestT += dt;
           if (cop.arrestT > 1.4) { state.over = 'busted'; state.overReason = 'Busted! The Vice Coast PD caught you.'; }
         } else if (dist(cop.x, cop.y, player.x, player.y) > 60) cop.arrestT = 0;
+      }
+    }
+    // A cop car shot to pieces explodes: it counts for the Vigilante phone job.
+    for (let i = cops.length - 1; i >= 0; i -= 1) {
+      const cop = cops[i];
+      if (cop.inCar && cop.car && cop.car.health <= 0) {
+        burst(cop.car.x, cop.car.y, '#ff5722', 22, 300);
+        cars.splice(cars.indexOf(cop.car), 1);
+        cops.splice(i, 1);
+        phone.onCarDestroyed(state);
+        state.message = 'Cop car wrecked!'; state.messageTimer = 2;
       }
     }
     // Remove dead / far cops when wanted is 0.
@@ -363,7 +438,18 @@ export function createWorld(random) {
       const b = bullets[i];
       b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
       let dead = b.life <= 0 || collideBuildings(b.x, b.y, 2).hit;
-      if (!dead) {
+      if (!dead && b.gang) {
+        // Drive-by round: it only ever hurts the player.
+        if (dist(b.x, b.y, player.x, player.y) < 16) {
+          if (player.inCar) {
+            const pc = cars.find((c) => c.id === player.carId);
+            if (pc) pc.health -= 6;
+          } else if (player.invuln <= 0) { hurtPlayer(8); player.invuln = 0.3; }
+          burst(b.x, b.y, '#ff5252', 4, 140);
+          dead = true;
+        }
+      }
+      if (!dead && !b.gang) {
         for (const p of peds) if (p.alive && dist(b.x, b.y, p.x, p.y) < 16) { p.health -= 34; p.flee = 3; if (p.health <= 0) { p.alive = false; addWanted(1); } burst(b.x, b.y, '#ff6b6b', 6, 180); dead = true; break; }
         if (!dead) for (const c of cops) {
           if (c.dead) continue;
@@ -376,6 +462,13 @@ export function createWorld(random) {
         if (!dead) for (const c of cars) {
           if (c.cop) continue;
           if (dist(b.x, b.y, c.x, c.y) < 30) { c.health -= 25; burst(b.x, b.y, '#ffb142', 5, 160); if (c.health <= 0) burst(c.x, c.y, '#ff5722', 16, 260); dead = true; break; }
+        }
+        if (!dead) for (const g of gangCars) {
+          if (dist(b.x, b.y, g.x, g.y) < 30) {
+            g.health -= 25; burst(b.x, b.y, '#c084fc', 6, 180);
+            if (g.health <= 0) gang.destroyCar(state, g, { burst, onGangKill: () => phone.onCarDestroyed(state) });
+            dead = true; break;
+          }
         }
       }
       if (dead) bullets.splice(i, 1);
@@ -403,50 +496,91 @@ export function createWorld(random) {
     }
     return 0;
   }
+
+  // ---- missions ----
   function updateMission(dt) {
-    if (state.missionIndex >= MISSIONS.length || state.over) return 0;
     const m = state.missionIndex;
-    if (m === 1 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Too slow — packages returned. Try again!'; state.messageTimer = 3; startMissionFlow(state, 1, landmarks, addWanted); return 0; } }
-    if (m === 2 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Getaway failed — the hideout moved on. Try again!'; state.messageTimer = 3; startMissionFlow(state, 2, landmarks, addWanted); return 0; } }
-    if (m === 6 && state.missionTimer > 0) { state.missionTimer -= dt; if (state.missionTimer <= 0) { state.message = 'Showdown failed — the pier went quiet. Try again!'; state.messageTimer = 3; startMissionFlow(state, 6, landmarks, addWanted); return 0; } }
+    if (m >= MISSIONS.length || state.over) return 0;
+    // Timed missions restart when the clock runs out.
+    if (TIMED_MISSIONS.includes(m) && state.missionTimer > 0) {
+      state.missionTimer -= dt;
+      if (state.missionTimer <= 0) {
+        state.message = 'Too slow — the job fell through. Try again!'; state.messageTimer = 3;
+        startMissionFlow(state, m, landmarks, addWanted);
+        return 0;
+      }
+    }
     if (m === 3) {
       // Survive until wanted drops to 0.
-      if (state.wanted === 0) { completeMissionFlow(state, landmarks, addWanted, winGame); return EVENT_MISSION; }
+      if (state.wanted === 0) { completeMission(); return EVENT_MISSION; }
+      return 0;
+    }
+    if (m === 8) {
+      // Neon Reign: torch 3 gang cars, then hold the turf marker 20 s.
+      if (state.missionStage === 0) {
+        if (!state.gangPrimed) { state.gangPrimed = true; state.gangMissionKills = 0; gang.ensureTurfCars(state, 0, 3); }
+        if (state.gangMissionKills >= 3) {
+          state.missionStage = 1; state.missionHold = 0;
+          state.message = 'Turf cleared! Hold the marker for 20 seconds!'; state.messageTimer = 3;
+          refreshMissionTarget(state, landmarks);
+          return EVENT_MISSION;
+        }
+        return 0;
+      }
+      const turf = GANG_TURF[0];
+      if (dist(player.x, player.y, turf.x, turf.y) < 90) {
+        state.missionHold += dt;
+        state.missionText = `Neon Reign — Hold the turf ${Math.max(0, Math.ceil(20 - state.missionHold))}s`;
+        if (state.missionHold >= 20) { completeMission(); return EVENT_MISSION; }
+      } else {
+        state.missionHold = Math.max(0, state.missionHold - dt * 0.5);
+        state.missionText = 'Neon Reign — Hold the turf marker';
+      }
       return 0;
     }
     const t = state.missionTarget;
     if (!t) return 0;
     if (dist(player.x, player.y, t.x, t.y) < 80) {
-      if (m === 0) { if (state.missionStage === 0) { state.missionStage = 1; state.message = 'Maya is in! Now the Neon Hotel.'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); } else completeMissionFlow(state, landmarks, addWanted, winGame); }
+      if (m === 0) { if (state.missionStage === 0) { state.missionStage = 1; state.message = 'Maya is in! Now the Neon Hotel.'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); } else completeMission(); }
       else if (m === 1) {
         if (state.missionStage < 3) { state.missionStage += 1; state.collected += 1; state.message = `Package ${state.collected}/3 collected!`; state.messageTimer = 2; burst(t.x, t.y, '#ffc93c', 12, 220); refreshMissionTarget(state, landmarks); }
-        else completeMissionFlow(state, landmarks, addWanted, winGame);
+        else completeMission();
       } else if (m === 2) {
         if (state.missionStage === 0) { state.missionStage = 1; addWanted(2, true); state.message = 'Bag grabbed! Run for the hideout — 2 stars!'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); }
-        else completeMissionFlow(state, landmarks, addWanted, winGame);
+        else completeMission();
       } else if (m === 4) {
         if (state.missionStage === 0) { state.missionStage = 1; state.money += 200; addWanted(3, true); state.message = 'Vault loot grabbed! +$200 — escape!'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); }
-        else completeMissionFlow(state, landmarks, addWanted, winGame);
+        else completeMission();
       } else if (m === 5) {
         if (state.missionStage < 4) { state.missionStage += 1; state.collected += 1; state.message = `Night drop ${state.collected}/4 collected!`; state.messageTimer = 2; burst(t.x, t.y, '#ffc93c', 12, 220); refreshMissionTarget(state, landmarks); }
-        else completeMissionFlow(state, landmarks, addWanted, winGame);
+        else completeMission();
       } else if (m === 6) {
-        completeMissionFlow(state, landmarks, addWanted, winGame);
+        completeMission();
+      } else if (m === 7) {
+        if (state.missionStage < 3) { state.missionStage += 1; state.collected += 1; state.message = `Crate ${state.collected}/3 loaded!`; state.messageTimer = 2; burst(t.x, t.y, '#ffc93c', 12, 220); refreshMissionTarget(state, landmarks); }
+        else completeMission();
+      } else if (m === 9) {
+        if (state.missionStage === 0) { state.missionStage = 1; state.message = 'Vault hit! Escape to the Sunset Pier — 5 stars!'; state.messageTimer = 3; refreshMissionTarget(state, landmarks); }
+        else completeMission();
       }
       return EVENT_MISSION;
     }
     return 0;
   }
 
+  // ---- main step ----
   function step(dt, ctrl, harmless) {
     let events = 0;
     state.elapsed += dt;
+    weather.update(dt);
     if (state.messageTimer > 0) state.messageTimer -= dt;
     if (state.missionFlash > 0) state.missionFlash -= dt;
+    if (state.districtTimer > 0) state.districtTimer -= dt;
     state.crimeTimer += dt;
     updateTraffic(dt);
     updatePeds(dt);
     taxi.update(dt, state);
+    shop.update(state);
     for (let i = particles.length - 1; i >= 0; i -= 1) {
       const pt = particles[i]; pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt;
       if (pt.life <= 0) particles.splice(i, 1);
@@ -463,8 +597,17 @@ export function createWorld(random) {
     updateBullets(dt);
     updateCops(dt);
     updateHeli(dt);
+    gang.update(dt, state, {
+      burst, collide: collideBuildings,
+      onDriveby() { state.drivebyAt = state.elapsed; },
+      onGangKill() { phone.onCarDestroyed(state); },
+    });
+    phone.update(dt, state);
     events |= updatePickups(dt);
     events |= updateMission(dt);
+    // District banner: show the district name for 3 s when it changes.
+    const d = districtAt(player.x, player.y);
+    if (d.name !== state.district) { state.district = d.name; state.districtTimer = 3; }
     // Wanted decay: hidden (no cop within 450) and no recent crime.
     const copNear = cops.some((cop) => !cop.dead && dist(cop.x, cop.y, player.x, player.y) < 450);
     if (state.wanted > 0 && !copNear && state.crimeTimer > 4) {
@@ -482,12 +625,10 @@ export function createWorld(random) {
 
   reset();
   return {
-    state, reset, step, addWanted, enterCar, shoot,
-    startMission(i) { startMissionFlow(state, i, landmarks, addWanted); },
-    completeMission() { completeMissionFlow(state, landmarks, addWanted, winGame); },
+    state, reset, step, addWanted, enterCar, shoot, startMission, completeMission, continueSave, nearestCar,
+    weather, gang, shop, phone,
     // Staging helpers used by shots.js / tests: real code paths, not shortcuts.
-    debugWin() { state.money = 4150; state.missionsDone = 7; state.missionIndex = 7; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
-    debugChase() { player.x = 1856; player.y = 1280; addWanted(3, true); },
-    nearestCar,
+    debugWin() { state.money = 9650; state.missionsDone = 10; state.missionIndex = 10; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
+    debugChase() { player.x = 2624; player.y = 960; addWanted(3, true); },
   };
 }

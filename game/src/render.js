@@ -1,8 +1,13 @@
-// Drawing only: world state + screen in, pixels out. Top-down sunset city,
-// cars and characters drawn as shapes, HUD, minimap, panels. 1280x720 logical view.
-import { CAR, FONT, PALETTE, PLAYER, VIEW, WORLD } from './config.js';
+// Drawing only: world state + screen in, pixels out. Top-down coastal city
+// in four districts with distinct palettes, animated sea waves, neon signs
+// that glow at night, headlight cones, rain, and a district name banner.
+// HUD, minimap, shop + phone panels. 1280x720 logical view.
+// v5 rewrite: districts, weather, gang turf, shop/phone panels, night light.
+import { CAR, FONT, PALETTE, PLAYER, VIEW, WORLD, SHOP_POS } from './config.js';
 import { IS_TOUCH, TOUCH_HINT } from './input.js';
 import { MISSIONS } from './missions.js';
+import { GANG_TURF } from './gang.js';
+import { clockFor } from './weather.js';
 import { ROADS_H, ROADS_V } from './world.js';
 
 export const SCREEN_TITLE = 'title';
@@ -13,6 +18,13 @@ export const SCREEN_WIN = 'win';
 export const SCREEN_BRIEF = 'brief';
 
 const SUNSET = ['#ff9a56', '#ff7e5f', '#feb47b'];
+// Neon signs on downtown buildings: text, position, glow colour.
+const NEON_SIGNS = [
+  { x: 2624, y: 620, text: 'NEON HOTEL', color: '#ff2fb3' },
+  { x: 3008, y: 940, text: 'VICE', color: '#22d3ee' },
+  { x: 2240, y: 1300, text: '24H TACOS', color: '#facc15' },
+  { x: 2624, y: 1620, text: 'PIER 9', color: '#a78bfa' },
+];
 
 export function createRenderer(canvas) {
   const context = canvas.getContext('2d');
@@ -54,6 +66,12 @@ export function createRenderer(canvas) {
       context.fillStyle = blink ? '#3b82f6' : '#ff3b30';
       context.beginPath(); context.arc(10, -CAR.width / 2 + 2, 5, 0, Math.PI * 2); context.fill();
     }
+    if (c.gang) {
+      // Purple paint, gold trim + a gold V on the roof: the Vipers.
+      context.strokeStyle = PALETTE.gangGold; context.lineWidth = 2.5;
+      rr(-CAR.length / 2 + 2, -CAR.width / 2 + 2, CAR.length - 4, CAR.width - 4, 7); context.stroke();
+      text('V', 0, 5, 12, PALETTE.gangGold, 'center', true);
+    }
     if (isPlayer) { context.strokeStyle = '#ffc93c'; context.lineWidth = 3; rr(-CAR.length / 2 - 3, -CAR.width / 2 - 3, CAR.length + 6, CAR.width + 6, 11); context.stroke(); }
     // Health bar for damaged cars.
     if (c.health < 100) {
@@ -72,24 +90,51 @@ export function createRenderer(canvas) {
     context.restore();
     if (name) text(name, x, y - 20, 12, '#fff', 'center');
   }
+  // Headlight cone in front of a car at night: a soft yellow wedge.
+  function drawHeadlights(c) {
+    const fx = Math.cos(c.angle), fy = Math.sin(c.angle);
+    const px = -fy, py = fx;
+    const grad = context.createLinearGradient(c.x + fx * 24, c.y + fy * 24, c.x + fx * 190, c.y + fy * 190);
+    grad.addColorStop(0, 'rgba(255,240,180,0.30)'); grad.addColorStop(1, 'rgba(255,240,180,0)');
+    context.fillStyle = grad;
+    context.beginPath();
+    context.moveTo(c.x + fx * 24 + px * 10, c.y + fy * 24 + py * 10);
+    context.lineTo(c.x + fx * 190 + px * 52, c.y + fy * 190 + py * 52);
+    context.lineTo(c.x + fx * 190 - px * 52, c.y + fy * 190 - py * 52);
+    context.lineTo(c.x + fx * 24 - px * 10, c.y + fy * 24 - py * 10);
+    context.closePath(); context.fill();
+  }
 
   function drawWorld(state, time, fx) {
     const cam = state.camera;
+    const wx = state.weather || { phase: 'day', raining: false };
+    const night = wx.phase === 'night';
+    const sunset = wx.phase === 'sunset';
     context.save();
     context.translate(-cam.x, -cam.y);
-    // Sea + beach (west edge).
+    // ---- sea + beach (west edge), with animated waves ----
     context.fillStyle = PALETTE.seaDeep; context.fillRect(cam.x - 20, cam.y - 20, 150, VIEW.height + 40);
     context.fillStyle = PALETTE.sea; context.fillRect(cam.x - 20, cam.y - 20, 130, VIEW.height + 40);
     context.strokeStyle = 'rgba(255,255,255,0.35)'; context.lineWidth = 3;
     for (let i = 0; i < 6; i += 1) {
       const wy = cam.y + ((i * 137 + Math.floor(time * 30)) % (VIEW.height + 80)) - 40;
-      context.beginPath(); context.moveTo(cam.x, wy); context.quadraticCurveTo(cam.x + 40, wy + 12, cam.x + 95, wy); context.stroke();
+      const sway = Math.sin(time * 1.4 + i * 1.7) * 10;
+      context.beginPath(); context.moveTo(cam.x, wy); context.quadraticCurveTo(cam.x + 40 + sway, wy + 12, cam.x + 95, wy); context.stroke();
     }
+    // A moored boat at the pier (the Harbor Lights delivery boat).
+    context.save(); context.translate(110, 1280);
+    context.fillStyle = '#5b3a1e'; rr(-52, -16, 104, 32, 12); context.fill();
+    context.fillStyle = '#f5f0e6'; rr(-30, -26, 60, 16, 6); context.fill();
+    context.fillStyle = '#ff9a56'; context.fillRect(-4, -52, 5, 28);
+    context.fillStyle = '#ffd76a'; context.beginPath(); context.moveTo(1, -52); context.lineTo(26, -38); context.lineTo(1, -30); context.closePath(); context.fill();
+    context.restore();
     context.fillStyle = PALETTE.sand; context.fillRect(130, cam.y - 20, 130, VIEW.height + 40);
     context.fillStyle = PALETTE.sandDark;
     for (let i = 0; i < 8; i += 1) { context.beginPath(); context.arc(170 + (i * 53) % 70, cam.y + (i * 173) % VIEW.height, 5, 0, Math.PI * 2); context.fill(); }
-    // Ground.
-    context.fillStyle = '#7a7f6a'; context.fillRect(260, cam.y - 20, WORLD.width, VIEW.height + 40);
+    // ---- district ground washes (each district its own palette) ----
+    context.fillStyle = PALETTE.suburbs; context.fillRect(260, cam.y - 20, WORLD.width, VIEW.height + 40);
+    context.fillStyle = PALETTE.downtown; context.fillRect(2240, 0, WORLD.width - 2240, 1600);
+    context.fillStyle = PALETTE.docks; context.fillRect(2624, 1600, WORLD.width - 2624, WORLD.height - 1600);
     // Parks.
     for (const pk of state.parks) {
       context.fillStyle = PALETTE.grass; context.fillRect(pk.x, pk.y, pk.w, pk.h);
@@ -99,13 +144,18 @@ export function createRenderer(canvas) {
       context.fillStyle = '#2e7d32'; context.beginPath(); context.arc(t.x, t.y, t.r, 0, Math.PI * 2); context.fill();
       context.fillStyle = '#66bb6a'; context.beginPath(); context.arc(t.x - 3, t.y - 3, t.r * 0.6, 0, Math.PI * 2); context.fill();
     }
-    // Roads.
+    // Roads (+ a wet-road sheen when it rains).
     context.fillStyle = PALETTE.sidewalk;
     for (const x of ROADS_V) context.fillRect(x - 48, cam.y - 20, 96, VIEW.height + 40);
     for (const y of ROADS_H) context.fillRect(cam.x - 20, y - 48, VIEW.width + 40, 96);
     context.fillStyle = PALETTE.road;
     for (const x of ROADS_V) context.fillRect(x - 36, cam.y - 20, 72, VIEW.height + 40);
     for (const y of ROADS_H) context.fillRect(cam.x - 20, y - 36, VIEW.width + 40, 72);
+    if (wx.raining) {
+      context.fillStyle = 'rgba(180,210,255,0.10)';
+      for (const x of ROADS_V) context.fillRect(x - 36, cam.y - 20, 72, VIEW.height + 40);
+      for (const y of ROADS_H) context.fillRect(cam.x - 20, y - 36, VIEW.width + 40, 72);
+    }
     context.strokeStyle = '#ffd76a'; context.lineWidth = 2; context.setLineDash([18, 22]);
     for (const x of ROADS_V) { context.beginPath(); context.moveTo(x, cam.y - 20); context.lineTo(x, cam.y + VIEW.height + 20); context.stroke(); }
     for (const y of ROADS_H) { context.beginPath(); context.moveTo(cam.x - 20, y); context.lineTo(cam.x + VIEW.width + 20, y); context.stroke(); }
@@ -116,19 +166,49 @@ export function createRenderer(canvas) {
     for (let x = 10; x < 300; x += 26) context.fillRect(x, 1244, 18, 72);
     context.fillStyle = '#ffd76a';
     for (let x = 20; x < 290; x += 40) { context.beginPath(); context.arc(x, 1252, 3, 0, Math.PI * 2); context.fill(); }
+    // Gang turf: a purple wash + a pulsing marker ring on each turf district.
+    for (const turf of GANG_TURF) {
+      context.fillStyle = 'rgba(142,68,173,0.10)';
+      context.beginPath(); context.arc(turf.x, turf.y, turf.r, 0, Math.PI * 2); context.fill();
+      const pulse = 1 + Math.sin(time * 3) * 0.08;
+      context.strokeStyle = 'rgba(193,132,252,0.85)'; context.lineWidth = 3;
+      context.beginPath(); context.arc(turf.x, turf.y, 46 * pulse, 0, Math.PI * 2); context.stroke();
+      context.fillStyle = '#c084fc';
+      context.beginPath(); context.moveTo(turf.x, turf.y - 58); context.lineTo(turf.x + 12, turf.y - 38); context.lineTo(turf.x - 12, turf.y - 38); context.closePath(); context.fill();
+      text('VIPER TURF', turf.x, turf.y + 66, 13, '#e9d5ff', 'center', true);
+    }
     // Buildings.
     for (const b of state.buildings) {
       if (b.x > cam.x + VIEW.width + 40 || b.x + b.w < cam.x - 40 || b.y > cam.y + VIEW.height + 40 || b.y + b.h < cam.y - 40) continue;
       context.fillStyle = 'rgba(0,0,0,0.3)'; context.fillRect(b.x + 6, b.y + 8, b.w, b.h);
       context.fillStyle = b.color; context.fillRect(b.x, b.y, b.w, b.h);
       context.fillStyle = b.roof; context.fillRect(b.x + 8, b.y + 8, b.w - 16, b.h - 16);
-      context.fillStyle = 'rgba(255,255,255,0.75)';
+      context.fillStyle = night ? 'rgba(255,214,120,0.9)' : 'rgba(255,255,255,0.75)';
       const cols = Math.max(2, Math.floor(b.w / 34)), rows = Math.max(2, Math.floor(b.h / 32));
       for (let i = 0; i < cols; i += 1) for (let j = 0; j < rows; j += 1) {
         if (((i * 3 + j * 7 + Math.floor(b.seed * 10)) % 4) === 0) continue;
         context.fillRect(b.x + 16 + i * ((b.w - 28) / cols), b.y + 16 + j * ((b.h - 28) / rows), 12, 10);
       }
     }
+    // Neon signs in Neon Downtown: they glow hard at night, softly by day.
+    for (const s of NEON_SIGNS) {
+      if (s.x < cam.x - 120 || s.x > cam.x + VIEW.width + 120 || s.y < cam.y - 40 || s.y > cam.y + VIEW.height + 40) continue;
+      const glow = night ? 0.95 : sunset ? 0.6 : 0.3;
+      context.save();
+      context.globalAlpha = glow;
+      context.shadowColor = s.color; context.shadowBlur = night ? 22 : 8;
+      context.fillStyle = s.color;
+      context.font = `700 26px ${FONT}`; context.textAlign = 'center';
+      context.fillText(s.text, s.x, s.y);
+      context.restore();
+    }
+    // Shop front: Sunset Arms & Paint, on the road by the Neon Hotel.
+    context.save(); context.translate(SHOP_POS.x, SHOP_POS.y);
+    context.fillStyle = '#2c2118'; rr(-46, -30, 92, 60, 8); context.fill();
+    context.strokeStyle = '#ffc93c'; context.lineWidth = 3; rr(-46, -30, 92, 60, 8); context.stroke();
+    text('ARMS', 0, -6, 15, '#ffc93c', 'center', true);
+    text('& PAINT', 0, 12, 11, '#fff7e8', 'center', true);
+    context.restore();
     // Mission target beacon.
     const target = state.missionTarget;
     if (target && !state.over) {
@@ -140,6 +220,18 @@ export function createRenderer(canvas) {
       context.beginPath(); context.moveTo(0, -58); context.lineTo(14, -34); context.lineTo(-14, -34); context.closePath(); context.fill();
       context.restore();
       text(target.label, target.x, target.y - 68, 15, '#ffc93c', 'center', true);
+    }
+    // Phone job target (blue diamond) when a side job is active.
+    const job = state.phone && state.phone.job;
+    if (job && job.target && !state.over) {
+      const pulse = 1 + Math.sin(time * 4) * 0.15;
+      context.save(); context.translate(job.target.x, job.target.y);
+      context.strokeStyle = '#38bdf8'; context.lineWidth = 4;
+      context.beginPath(); context.arc(0, 0, 28 * pulse, 0, Math.PI * 2); context.stroke();
+      context.fillStyle = '#38bdf8';
+      context.beginPath(); context.moveTo(0, -12); context.lineTo(9, 0); context.lineTo(0, 12); context.lineTo(-9, 0); context.closePath(); context.fill();
+      context.restore();
+      text(job.label, job.target.x, job.target.y - 40, 13, '#7dd3fc', 'center', true);
     }
     // Pickups.
     for (const pk of state.pickups) {
@@ -163,8 +255,17 @@ export function createRenderer(canvas) {
       else { context.fillStyle = '#3498db'; rr(-12, -8, 24, 16, 4); context.fill(); context.fillStyle = '#fff'; text('🔧', 0, 5, 12, '#fff', 'center'); }
       context.restore();
     }
+    // Headlight cones at night (player car + cop cars + gang cars).
+    if (night) {
+      const pl = state.player;
+      if (pl.inCar) { const car = state.cars.find((c) => c.id === pl.carId); if (car) drawHeadlights(car); }
+      for (const c of state.cars) if (c.cop) drawHeadlights(c);
+      for (const g of state.gangCars) drawHeadlights(g);
+    }
     // Traffic + player cars.
     for (const c of state.cars) drawCar(c, state.player.inCar && state.player.carId === c.id);
+    // Gang cars (purple with gold trim).
+    for (const g of state.gangCars) drawCar(g, false);
     // Pedestrians (a waiting taxi fare stands out with a TAXI tag).
     for (const p of state.peds) if (p.alive) drawPerson(p.x, p.y, p.angle, p.color, false, p.fare ? 'TAXI' : null);
     // Foot cops.
@@ -175,7 +276,7 @@ export function createRenderer(canvas) {
     }
     // Bullets + particles.
     context.fillStyle = '#ffe66d';
-    for (const b of state.bullets) { context.beginPath(); context.arc(b.x, b.y, 4, 0, Math.PI * 2); context.fill(); }
+    for (const b of state.bullets) { context.fillStyle = b.gang ? '#e879f9' : '#ffe66d'; context.beginPath(); context.arc(b.x, b.y, 4, 0, Math.PI * 2); context.fill(); }
     for (const pt of state.particles) {
       context.globalAlpha = Math.max(0, pt.life / pt.max);
       context.fillStyle = pt.color; context.beginPath(); context.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2); context.fill();
@@ -225,10 +326,30 @@ export function createRenderer(canvas) {
       context.restore();
       text('VCPD', heli.x, heli.y + 4, 10, '#fff', 'center', true);
     }
-    // Sunset glow vignette (screen-space, drawn after restore in draw()).
     // Cosmetic effects last, in world space: skids, floaters, flashes, booms.
     if (fx) fx.draw(context);
     context.restore();
+    // ---- screen-space weather: night darkness, streetlight glow, rain ----
+    if (sunset) { context.fillStyle = 'rgba(255,122,89,0.16)'; context.fillRect(0, 0, VIEW.width, VIEW.height); }
+    if (night) {
+      context.fillStyle = 'rgba(8,8,32,0.42)'; context.fillRect(0, 0, VIEW.width, VIEW.height);
+      // Streetlight pools at the road intersections in view.
+      for (const x of ROADS_V) for (const y of ROADS_H) {
+        const sx = x - cam.x, sy = y - cam.y;
+        if (sx < -80 || sx > VIEW.width + 80 || sy < -80 || sy > VIEW.height + 80) continue;
+        const g = context.createRadialGradient(sx, sy, 4, sx, sy, 70);
+        g.addColorStop(0, 'rgba(255,220,140,0.20)'); g.addColorStop(1, 'rgba(255,220,140,0)');
+        context.fillStyle = g; context.beginPath(); context.arc(sx, sy, 70, 0, Math.PI * 2); context.fill();
+      }
+    }
+    if (wx.raining) {
+      context.strokeStyle = 'rgba(190,215,255,0.5)'; context.lineWidth = 1.5;
+      for (let i = 0; i < 90; i += 1) {
+        const rx = (i * 173 + Math.floor(time * 900)) % (VIEW.width + 40) - 20;
+        const ry = (i * 271 + Math.floor(time * 1400)) % (VIEW.height + 40) - 20;
+        context.beginPath(); context.moveTo(rx, ry); context.lineTo(rx - 6, ry + 16); context.stroke();
+      }
+    }
   }
 
   function drawMinimap(state) {
@@ -243,9 +364,15 @@ export function createRenderer(canvas) {
     for (const y of ROADS_H) context.fillRect(mx, my + y * sy - 1, mw, 2);
     context.fillStyle = '#4f9e57';
     for (const pk of state.parks) context.fillRect(mx + pk.x * sx, my + pk.y * sy, Math.max(2, pk.w * sx), Math.max(2, pk.h * sy));
+    // Gang turf on the minimap (purple dots).
+    context.fillStyle = '#c084fc';
+    for (const turf of GANG_TURF) { context.beginPath(); context.arc(mx + turf.x * sx, my + turf.y * sy, 5, 0, Math.PI * 2); context.fill(); }
+    // Shop marker (gold square).
+    context.fillStyle = '#ffc93c'; context.fillRect(mx + SHOP_POS.x * sx - 3, my + SHOP_POS.y * sy - 3, 6, 6);
     const t = state.missionTarget;
     if (t && !state.over) { context.fillStyle = '#ffc93c'; context.beginPath(); context.arc(mx + t.x * sx, my + t.y * sy, 6, 0, Math.PI * 2); context.fill(); context.strokeStyle = '#fff'; context.lineWidth = 2; context.stroke(); }
     for (const c of state.cars) { if (c.cop) { context.fillStyle = '#3b82f6'; context.fillRect(mx + c.x * sx - 3, my + c.y * sy - 3, 6, 6); } }
+    for (const g of state.gangCars) { context.fillStyle = '#c084fc'; context.fillRect(mx + g.x * sx - 3, my + g.y * sy - 3, 6, 6); }
     if (state.heli) {
       context.fillStyle = '#fff'; context.beginPath(); context.arc(mx + state.heli.x * sx, my + state.heli.y * sy, 4, 0, Math.PI * 2); context.fill();
       context.strokeStyle = '#2f6fd0'; context.lineWidth = 2; context.stroke();
@@ -256,32 +383,38 @@ export function createRenderer(canvas) {
     text('VICE COAST', mx + 4, my + mh - 8, 11, '#ffd9a0', 'left', true);
   }
 
-  function drawHud(state, muted, radioName) {
+  function drawHud(state, muted, radioName, extra) {
+    const wx = state.weather || { phase: 'day', raining: false, t: 0 };
     // Top-left status panel — tall enough that the wanted stars sit INSIDE it.
-    context.fillStyle = PALETTE.hudBg; rr(14, 14, 300, 160, 12); context.fill();
+    context.fillStyle = PALETTE.hudBg; rr(14, 14, 300, 196, 12); context.fill();
     text(`$${state.money.toLocaleString()}`, 30, 48, 30, '#7CFC9A', 'left', true);
     text(`RESPECT ${state.respect}`, 30, 74, 15, PALETTE.muted, 'left', true);
     // Health bar.
     context.fillStyle = 'rgba(255,255,255,0.2)'; rr(30, 84, 180, 12, 6); context.fill();
     context.fillStyle = state.player.health > 40 ? '#2ecc71' : '#e74c3c'; rr(30, 84, 180 * Math.max(0, state.player.health) / 100, 12, 6); context.fill();
     text(`HP ${Math.max(0, Math.round(state.player.health))}`, 220, 96, 14, '#fff', 'left', true);
-    // Wanted stars, inside the panel: label at y 134, stars centred y 142.
-    text('WANTED', 30, 134, 13, '#ffb3b3', 'left', true);
+    // Armor bar (bought at the shop).
+    context.fillStyle = 'rgba(255,255,255,0.2)'; rr(30, 102, 180, 8, 4); context.fill();
+    context.fillStyle = '#38bdf8'; rr(30, 102, 180 * Math.max(0, state.player.armor) / 100, 8, 4); context.fill();
+    text(`ARMOR ${Math.round(state.player.armor)}`, 220, 111, 12, '#7dd3fc', 'left', true);
+    // Wanted stars, inside the panel: label at y 150, stars centred y 158.
+    text('WANTED', 30, 150, 13, '#ffb3b3', 'left', true);
     for (let i = 0; i < 5; i += 1) {
       context.fillStyle = i < state.wanted ? '#ffd700' : 'rgba(255,255,255,0.25)';
-      const sx = 110 + i * 26, sy = 142;
+      const sx = 110 + i * 26, sy = 158;
       context.beginPath();
       for (let k = 0; k < 10; k += 1) { const a = -Math.PI / 2 + k * (Math.PI / 5); const r = k % 2 ? 5 : 11; const px = sx + Math.cos(a) * r, py = sy + Math.sin(a) * r; if (k === 0) context.moveTo(px, py); else context.lineTo(px, py); }
       context.closePath(); context.fill();
     }
-    if (muted) text('MUTED (M)', 30, 168, 13, '#ccc', 'left');
+    text(`${state.district}  •  ${clockFor(wx.t)} ${wx.phase.toUpperCase()}${wx.raining ? ' • RAIN' : ''}`, 30, 196, 13, '#ffd9a0', 'left', true);
+    if (muted) text('MUTED (M)', 30, 216, 13, '#ccc', 'left');
     // Hidden packages tracker, tucked under the status panel.
-    context.fillStyle = PALETTE.hudBg; rr(14, 182, 172, 30, 9); context.fill();
-    text(`◆ PACKAGES ${state.hiddenFound}/${state.hiddenTotal}`, 30, 203, 14, '#ffc93c', 'left', true);
+    context.fillStyle = PALETTE.hudBg; rr(14, 224, 172, 30, 9); context.fill();
+    text(`◆ PACKAGES ${state.hiddenFound}/${state.hiddenTotal}`, 30, 245, 14, '#ffc93c', 'left', true);
     // Radio station, under the packages pill (Q changes station).
     if (radioName) {
-      context.fillStyle = PALETTE.hudBg; rr(14, 220, 272, 30, 9); context.fill();
-      text(`♪ ${radioName} • Q to change station`, 30, 241, 14, '#ffd9a0', 'left', true);
+      context.fillStyle = PALETTE.hudBg; rr(14, 262, 272, 30, 9); context.fill();
+      text(`♪ ${radioName} • Q to change station`, 30, 283, 14, '#ffd9a0', 'left', true);
     }
     drawMinimap(state);
     // Objective banner.
@@ -296,9 +429,30 @@ export function createRenderer(canvas) {
     if (state.missionTimer > 0 && state.missionIndex < MISSIONS.length) {
       text(`⏱ ${Math.ceil(state.missionTimer)}s`, VIEW.width / 2, 104, 22, state.missionTimer < 15 ? '#ff6b6b' : '#ffc93c', 'center', true);
     }
+    // Active phone side job, under the timer.
+    const job = state.phone && state.phone.job;
+    if (job) {
+      const jobLine = job.timer > 0 ? `${job.label} — ${Math.ceil(job.timer)}s` : job.type === 'vigilante' ? `${job.label} (${job.done}/${job.need})` : job.label;
+      context.fillStyle = 'rgba(14,40,60,0.8)'; const jw = 40 + jobLine.length * 8.5; rr((VIEW.width - jw) / 2, 116, jw, 32, 9); context.fill();
+      text(`☎ ${jobLine}`, VIEW.width / 2, 138, 15, '#7dd3fc', 'center', true);
+    }
+    // District name banner when entering a district.
+    if (state.districtTimer > 0) {
+      const a = Math.min(1, state.districtTimer);
+      context.globalAlpha = a;
+      text(state.district.toUpperCase(), VIEW.width / 2, 210, 44, '#fff', 'center', true);
+      context.globalAlpha = a * 0.8;
+      text('— VICE COAST —', VIEW.width / 2, 236, 15, '#ffd9a0', 'center', true);
+      context.globalAlpha = 1;
+    }
     if (state.messageTimer > 0 && state.message) {
       context.fillStyle = 'rgba(0,0,0,0.55)'; const mw = 30 + state.message.length * 8.5; rr((VIEW.width - mw) / 2, VIEW.height - 96, mw, 36, 9); context.fill();
       text(state.message, VIEW.width / 2, VIEW.height - 71, 17, '#fff', 'center');
+    }
+    // Shop hint when standing by the shop.
+    if (state.shop && state.shop.near && !state.shop.open) {
+      context.fillStyle = 'rgba(0,0,0,0.55)'; const sw = 560; rr((VIEW.width - sw) / 2, VIEW.height - 140, sw, 32, 9); context.fill();
+      text('E — Sunset Arms & Paint: armor $200 • ammo $100 • paint $150', VIEW.width / 2, VIEW.height - 118, 15, '#ffc93c', 'center', true);
     }
     // Speedometer in car.
     if (state.player.inCar) {
@@ -312,7 +466,7 @@ export function createRenderer(canvas) {
         context.fillStyle = car.health > 40 ? '#2ecc71' : '#e74c3c'; rr(VIEW.width - 176, VIEW.height - 86, 148 * Math.max(0, car.health) / 100, 8, 4); context.fill();
       }
     } else {
-      text(IS_TOUCH ? TOUCH_HINT : 'SPACE: enter car   •   CLICK / J: shoot   •   E: interact', 16, VIEW.height - 18, 14, 'rgba(255,255,255,0.75)', 'left');
+      text(IS_TOUCH ? TOUCH_HINT : 'SPACE: enter car   •   CLICK / J: shoot   •   E: shop   •   P: phone', 16, VIEW.height - 18, 14, 'rgba(255,255,255,0.75)', 'left');
     }
     // Off-screen mission arrow.
     const tgt = state.missionTarget;
@@ -341,11 +495,36 @@ export function createRenderer(canvas) {
     text(prompt, VIEW.width / 2, y + h - 30, 20, '#ffc93c', 'center', true);
   }
 
+  function drawShopPanel(state) {
+    const items = [
+      '1 — Body Armor  $200  (+50 armor)',
+      '2 — Ammo Box  $100  (+60 ammo)',
+      '3 — Car Paint  $150  (next colour)',
+    ];
+    drawPanel('SUNSET ARMS & PAINT', [
+      `Cash: $${state.money.toLocaleString()}  •  Armor ${Math.round(state.player.armor)}/100  •  Ammo ${state.player.ammo}`,
+      ...items,
+      'Paint applies to the car you are in — get in a car first.',
+    ], 'Press 1 / 2 / 3 to buy  •  E to close', '#ffc93c');
+  }
+
+  function drawPhonePanel(state) {
+    const job = state.phone && state.phone.job;
+    drawPanel('VICE PHONE — SIDE JOBS', [
+      '1 — Courier  $80   Deliver a package in 60s',
+      '2 — Vigilante  $120   Take out 2 wanted cars',
+      '3 — Racer  $150   Hit 3 checkpoints in 45s',
+      job ? `Active: ${job.label}` : 'No job running — pick one and earn on the side.',
+    ], 'Press 1 / 2 / 3 to start  •  P to close', '#38bdf8');
+  }
+
   function draw(state, screen, best, extra) {
     const time = (extra && extra.time) || 0;
     const muted = extra && extra.muted;
     const fx = extra && extra.effects;
     const radioName = extra && extra.radio;
+    const hasSave = extra && extra.hasSave;
+    const saveData = extra && extra.saveData;
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.fillStyle = '#14101f'; context.fillRect(0, 0, canvas.width, canvas.height);
     context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
@@ -362,17 +541,22 @@ export function createRenderer(canvas) {
       context.fillStyle = g2; context.fillRect(0, 0, VIEW.width, VIEW.height);
       text('VICE COAST', VIEW.width / 2, 118, 84, '#fff', 'center', true);
       text('★  SUNSET CITY  •  STEAL  •  DRIVE  •  ESCAPE  ★', VIEW.width / 2, 156, 21, SUNSET[2], 'center', true);
-      drawPanel('An open-world crime story', [
+      const lines = [
         'Explore a sun-soaked coastal city on foot and by car.',
-        'Steal cars, dodge the Vice Coast PD, and run 7 story missions.',
+        'Steal cars, dodge the Vice Coast PD, and run 10 story missions.',
+        'Day turns to night, rain slicks the roads, the Vipers hold turf.',
         'WASD move  •  SPACE enter car  •  CLICK / J shoot  •  SHIFT sprint',
-        'P pause  •  M mute  •  Q radio  •  Your best money is saved',
+        'E shop  •  P phone jobs  •  Q radio  •  Your best money is saved',
         best > 0 ? `Best money so far: $${best.toLocaleString()}` : 'First time in Vice Coast? The pier is a good place to start.',
-      ], 'Press SPACE or click to start', '#ff9a56', 55);
+      ];
+      if (hasSave && saveData) lines.push(`C — Continue: mission ${Math.min(saveData.missionsDone + 1, MISSIONS.length)}/10, $${saveData.money.toLocaleString()} saved`);
+      drawPanel('An open-world crime story', lines, 'Press SPACE or click to start', '#ff9a56', 55);
       return;
     }
-    drawHud(state, muted, radioName);
-    if (screen === SCREEN_BRIEF) {
+    drawHud(state, muted, radioName, extra);
+    if (state.shop && state.shop.open) drawShopPanel(state);
+    else if (state.phone && state.phone.open) drawPhonePanel(state);
+    else if (screen === SCREEN_BRIEF) {
       const m = MISSIONS[Math.min(state.missionIndex, MISSIONS.length - 1)];
       drawPanel(`Mission ${m.id}: ${m.name}`, [m.brief, `Reward: $${m.reward}`, 'Get in a car — Vice Coast is big.'], 'Press ENTER to start the mission', '#ffc93c');
     } else if (screen === SCREEN_PAUSED) {
@@ -385,7 +569,7 @@ export function createRenderer(canvas) {
       ], 'Press R or SPACE to play again', '#ff6b6b');
     } else if (screen === SCREEN_WIN) {
       drawPanel('VICE COAST IS YOURS!', [
-        'You pulled off the Sunset Showdown and escaped clean.',
+        'You pulled off the Vice Coast Finale and escaped clean.',
         `Final take: $${state.money.toLocaleString()}  •  Respect ${state.respect}`,
         `All ${MISSIONS.length} missions complete. Free roam continues — enjoy the sunset.`,
       ], 'Press R or SPACE to play again', '#ffc93c');

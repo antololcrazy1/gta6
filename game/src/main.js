@@ -129,7 +129,9 @@ function runGame() {
     }
     if (screen === SCREEN_TITLE && (actions & (ACTION_CONFIRM | ACTION_SHOOT))) { startGame(); pendingShoot = false; pendingEnter = false; return; }
     if (screen === SCREEN_TITLE && (actions & ACTION_CONTINUE) && hasSave()) { continueGame(); pendingShoot = false; pendingEnter = false; return; }
-    if (screen === SCREEN_BRIEF && (actions & (ACTION_CONFIRM | ACTION_ENTER))) { screen = SCREEN_PLAY; announce('Playing. Follow the gold marker.'); pendingEnter = false; return; }
+    // A click / tap on the briefing starts the mission too — on a phone
+    // there is no Enter key, and the tap must not also fire a shot.
+    if (screen === SCREEN_BRIEF && (actions & (ACTION_CONFIRM | ACTION_ENTER | ACTION_SHOOT))) { screen = SCREEN_PLAY; announce('Playing. Follow the gold marker.'); pendingShoot = false; pendingEnter = false; return; }
     if (screen === SCREEN_OVER || screen === SCREEN_WIN) {
       if (actions & ACTION_CONFIRM) { startGame(); pendingShoot = false; pendingEnter = false; }
       return;
@@ -183,7 +185,43 @@ function runGame() {
       while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) { step(); accumulator -= STEP; }
     } else accumulator = 0;
     const saveData = hasSave() ? loadSave() : null;
+    syncTouchUI(!!saveData);
     renderer.draw(world.state, screen, best, { time, muted: audio.muted, effects, radio: radio.name(), hasSave: !!saveData, saveData });
+  }
+
+  // Touch menu buttons: the big START button (and CONTINUE on the title)
+  // are the phone's way in — the canvas prompts are keyboard-only. The
+  // gameplay controls only show while playing.
+  let lastTouchScreen = null;
+  function syncTouchUI(hasSaveData) {
+    input.setScreen(screen);
+    if (screen === lastTouchScreen) return;
+    lastTouchScreen = screen;
+    if (screen === SCREEN_TITLE) {
+      input.setControlsVisible(false);
+      input.setStartAction(ACTION_CONFIRM);
+      input.setStartButton(true, '▶  START GAME');
+      input.setContinueButton(hasSaveData);
+    } else if (screen === SCREEN_BRIEF) {
+      input.setControlsVisible(false);
+      input.setStartAction(ACTION_CONFIRM);
+      input.setStartButton(true, '▶  START MISSION');
+      input.setContinueButton(false);
+    } else if (screen === SCREEN_PLAY) {
+      input.setControlsVisible(true);
+      input.setStartButton(false);
+      input.setContinueButton(false);
+    } else if (screen === SCREEN_PAUSED) {
+      input.setControlsVisible(false);
+      input.setStartAction(ACTION_PAUSE);
+      input.setStartButton(true, '▶  RESUME');
+      input.setContinueButton(false);
+    } else { // over / win
+      input.setControlsVisible(false);
+      input.setStartAction(ACTION_CONFIRM);
+      input.setStartButton(true, '▶  PLAY AGAIN');
+      input.setContinueButton(false);
+    }
   }
 
   document.addEventListener('visibilitychange', () => {

@@ -8,7 +8,7 @@ An original open-world crime game built for the [make.fun](https://make.fun) bou
 
 ## Play it
 
-Serve the `game/` folder with any static server, then open `game/index.html` in desktop Chrome. No build step, no network request — every script, image, sound and font is a file under `game/` or generated in code.
+Serve the `game/` folder with any static server, then open `game/index.html` in a browser — desktop with keyboard and mouse, or a phone with the on-screen joystick and buttons (tap START GAME / START MISSION on the menu screens; rotate to landscape for the full view). Also live at https://antololcrazy1.github.io/gta6/. No build step, no network request — every script, image, sound and font is a file under `game/` or generated in code.
 
 ```sh
 node serve.ts   # then open http://localhost:8080

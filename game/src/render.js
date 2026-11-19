@@ -545,12 +545,12 @@ export function createRenderer(canvas) {
         'Explore a sun-soaked coastal city on foot and by car.',
         'Steal cars, dodge the Vice Coast PD, and run 10 story missions.',
         'Day turns to night, rain slicks the roads, the Vipers hold turf.',
-        'WASD move  •  SPACE enter car  •  CLICK / J shoot  •  SHIFT sprint',
-        'E shop  •  P phone jobs  •  Q radio  •  Your best money is saved',
+        IS_TOUCH ? TOUCH_HINT : 'WASD move  •  SPACE enter car  •  CLICK / J shoot  •  SHIFT sprint',
+        IS_TOUCH ? 'RADIO / PHONE buttons on the right  •  Your best money is saved' : 'E shop  •  P phone jobs  •  Q radio  •  Your best money is saved',
         best > 0 ? `Best money so far: $${best.toLocaleString()}` : 'First time in Vice Coast? The pier is a good place to start.',
       ];
       if (hasSave && saveData) lines.push(`C — Continue: mission ${Math.min(saveData.missionsDone + 1, MISSIONS.length)}/10, $${saveData.money.toLocaleString()} saved`);
-      drawPanel('An open-world crime story', lines, 'Press SPACE or click to start', '#ff9a56', 55);
+      drawPanel('An open-world crime story', lines, IS_TOUCH ? 'Tap START GAME below' : 'Press SPACE or click to start', '#ff9a56', 55);
       return;
     }
     drawHud(state, muted, radioName, extra);
@@ -558,7 +558,7 @@ export function createRenderer(canvas) {
     else if (state.phone && state.phone.open) drawPhonePanel(state);
     else if (screen === SCREEN_BRIEF) {
       const m = MISSIONS[Math.min(state.missionIndex, MISSIONS.length - 1)];
-      drawPanel(`Mission ${m.id}: ${m.name}`, [m.brief, `Reward: $${m.reward}`, 'Get in a car — Vice Coast is big.'], 'Press ENTER to start the mission', '#ffc93c');
+      drawPanel(`Mission ${m.id}: ${m.name}`, [m.brief, `Reward: $${m.reward}`, 'Get in a car — Vice Coast is big.'], IS_TOUCH ? 'Tap START MISSION below' : 'Press ENTER to start the mission', '#ffc93c');
     } else if (screen === SCREEN_PAUSED) {
       drawPanel('Paused', ['The city waits for you.', `Money $${state.money.toLocaleString()}  •  Mission ${Math.min(state.missionIndex + 1, MISSIONS.length)}/${MISSIONS.length}`, 'M mute  •  R restart run'], 'Press P to resume', '#7ec8ff');
     } else if (screen === SCREEN_OVER) {

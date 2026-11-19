@@ -33,7 +33,10 @@ function makeButton(label, right, bottom, action, input) {
   const b = document.createElement('div');
   b.className = 'vc-btn';
   b.textContent = label;
-  b.style.cssText = `position:absolute;right:${right}px;bottom:${bottom}px;width:64px;height:64px;border-radius:50%;background:rgba(20,16,32,0.55);border:2px solid rgba(255,201,60,0.8);color:#fff7e8;font:700 13px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none;`;
+  // NOTE: the touch root sets pointer-events:none (taps pass through to the
+  // canvas), and pointer-events is inherited — so every button must turn it
+  // back on for itself, or it is dead on a real phone.
+  b.style.cssText = `position:absolute;right:${right}px;bottom:${bottom}px;width:64px;height:64px;border-radius:50%;background:rgba(20,16,32,0.55);border:2px solid rgba(255,201,60,0.8);color:#fff7e8;font:700 13px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none;pointer-events:auto;`;
   const down = (e) => { e.preventDefault(); b.style.background = 'rgba(255,201,60,0.75)'; input.queue(action); };
   const up = () => { b.style.background = 'rgba(20,16,32,0.55)'; };
   b.addEventListener('pointerdown', down);
@@ -49,6 +52,13 @@ export function createInput(canvas) {
   const mouse = { x: 640, y: 360, down: false };
   // Touch stick state: a normalised -1..1 vector, zero when released.
   const touch = { active: false, move: { x: 0, y: 0 }, gas: false, brake: false, shooting: false, elements: null };
+  // Which screen the game is on (main.js reports it every frame): a tap on
+  // a menu screen starts / resumes, a tap in play does nothing on the
+  // canvas itself — the touch buttons drive there.
+  let screen = 'title';
+  // Which action the big touch START button queues (main.js sets it per
+  // screen: CONFIRM on the menus, PAUSE to resume from the pause screen).
+  let startAction = ACTION_CONFIRM;
 
   function queue(action) { actions |= action; }
 
@@ -83,7 +93,15 @@ export function createInput(canvas) {
     mouse.y = (event.clientY - r.top) * (canvas.height / r.height);
   });
   canvas.addEventListener('pointerdown', (event) => {
-    if (event.pointerType === 'touch') return; // touch buttons handle taps
+    if (event.pointerType === 'touch') {
+      // A tap on a menu screen starts / resumes the game; in play the
+      // touch buttons drive, so a canvas tap does nothing there. (Before,
+      // every tap was dropped here, so a phone could never leave the
+      // briefing — and a mouse-style tap queued SHOOT instead of CONFIRM.)
+      if (screen === 'title' || screen === 'brief' || screen === 'over' || screen === 'win') queue(ACTION_CONFIRM);
+      else if (screen === 'paused') queue(ACTION_PAUSE);
+      return;
+    }
     const r = canvas.getBoundingClientRect();
     mouse.x = (event.clientX - r.left) * (canvas.width / r.width);
     mouse.y = (event.clientY - r.top) * (canvas.height / r.height);
@@ -93,10 +111,18 @@ export function createInput(canvas) {
   canvas.addEventListener('pointerup', () => { mouse.down = false; });
 
   // ---- touch overlay (only built on touch devices) ----
+  // The root never takes pointer events (taps pass through to the canvas),
+  // so every control re-enables them for itself (see makeButton).
+  // Gameplay controls live in .vc-controls (shown only while playing);
+  // the big START button lives outside it (shown on the menu screens).
+  let controlsEl = null; let startBtn = null; let continueBtn = null; let rotateHint = null;
   if (IS_TOUCH && typeof document !== 'undefined') {
     const root = document.createElement('div');
     root.className = 'vc-touch';
     root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;';
+    controlsEl = document.createElement('div');
+    controlsEl.className = 'vc-controls';
+    controlsEl.style.cssText = 'position:absolute;inset:0;pointer-events:none;display:none;';
     // Virtual joystick, bottom-left.
     const stick = document.createElement('div');
     stick.className = 'vc-joystick';
@@ -120,7 +146,7 @@ export function createInput(canvas) {
     stick.addEventListener('pointermove', (e) => { if (e.pointerId === stickId) stickMove(e); });
     stick.addEventListener('pointerup', (e) => { if (e.pointerId === stickId) stickEnd(); });
     stick.addEventListener('pointercancel', stickEnd);
-    root.appendChild(stick);
+    controlsEl.appendChild(stick);
     // Right-hand buttons: GAS / BRAKE drive, ENTER gets in/out of a car,
     // SHOOT fires toward the facing direction, RADIO cycles, PHONE opens jobs.
     const gas = makeButton('GAS', 24, 120, 0, { queue: () => {} });
@@ -137,13 +163,46 @@ export function createInput(canvas) {
     shoot.addEventListener('pointerup', () => { touch.shooting = false; });
     const radio = makeButton('RADIO', 188, 36, ACTION_RADIO, { queue });
     const phone = makeButton('PHONE', 188, 120, ACTION_PHONE, { queue });
-    for (const b of [gas, brake, enter, shoot, radio, phone]) root.appendChild(b);
+    for (const b of [gas, brake, enter, shoot, radio, phone]) controlsEl.appendChild(b);
+    root.appendChild(controlsEl);
+    // Big START button for the menu screens (title / briefing / paused /
+    // game over). It queues startAction, which main.js sets per screen.
+    startBtn = document.createElement('div');
+    startBtn.className = 'vc-start';
+    startBtn.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);bottom:40px;min-width:280px;max-width:88vw;padding:18px 28px;border-radius:16px;background:rgba(255,201,60,0.95);border:2px solid #fff3c4;color:#1a1a2e;font:800 20px system-ui,sans-serif;text-align:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;display:none;';
+    startBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); queue(startAction); });
+    root.appendChild(startBtn);
+    // CONTINUE button, shown on the title when a save exists.
+    continueBtn = document.createElement('div');
+    continueBtn.className = 'vc-continue';
+    continueBtn.textContent = '↻  CONTINUE';
+    continueBtn.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);bottom:124px;min-width:280px;max-width:88vw;padding:14px 28px;border-radius:16px;background:rgba(20,16,32,0.75);border:2px solid rgba(255,201,60,0.8);color:#fff7e8;font:800 18px system-ui,sans-serif;text-align:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;display:none;';
+    continueBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); queue(ACTION_CONTINUE); });
+    root.appendChild(continueBtn);
+    // Rotate hint: the 1280x720 view is a thin strip in portrait, so nudge
+    // the player to landscape, where the game fills the screen.
+    rotateHint = document.createElement('div');
+    rotateHint.className = 'vc-rotate';
+    rotateHint.textContent = '📱 Rotate your phone sideways for a bigger view';
+    rotateHint.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);top:12px;max-width:92vw;padding:8px 14px;border-radius:999px;background:rgba(20,16,32,0.75);color:#fff7e8;font:600 13px system-ui,sans-serif;text-align:center;pointer-events:none;display:none;white-space:nowrap;';
+    root.appendChild(rotateHint);
+    const updateRotateHint = () => { rotateHint.style.display = window.innerHeight > window.innerWidth ? 'block' : 'none'; };
+    updateRotateHint();
+    window.addEventListener('resize', updateRotateHint);
+    window.addEventListener('orientationchange', updateRotateHint);
     document.body.appendChild(root);
     touch.elements = root;
   }
 
   return {
     held, mouse, touch,
+    // Current screen (main.js reports it every frame) so canvas taps on
+    // menus can start the game. No-ops on desktop (no touch elements).
+    setScreen(s) { screen = s; },
+    setStartAction(action) { startAction = action; },
+    setStartButton(visible, label) { if (!startBtn) return; if (label) startBtn.textContent = label; startBtn.style.display = visible ? 'block' : 'none'; },
+    setContinueButton(visible) { if (!continueBtn) return; continueBtn.style.display = visible ? 'block' : 'none'; },
+    setControlsVisible(visible) { if (!controlsEl) return; controlsEl.style.display = visible ? 'block' : 'none'; },
     move() {
       // The touch stick wins when it is held; otherwise the keys drive.
       if (touch.active && (Math.abs(touch.move.x) > 0.15 || Math.abs(touch.move.y) > 0.15)) {

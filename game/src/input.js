@@ -1,10 +1,12 @@
-// Keyboard + mouse + touch input. Held keys give a movement vector; one-shot
-// presses (confirm, pause, enter car, interact, shoot, mute, radio, phone,
-// shop/phone slots) are queued as flags.
-// v5: on touch devices a virtual joystick (left) + buttons on the right
-// (GAS, BRAKE, ENTER, SHOOT, RADIO, PHONE) are overlaid on the canvas as DOM
-// elements, so the game is playable on a phone without breaking keyboard /
-// mouse play on desktop.
+// Vice Coast v6 — keyboard + mouse + touch input.
+// Held keys give a movement vector; one-shot presses (confirm, pause, enter
+// car, interact, shoot, mute, radio, phone, shop/phone slots) are queued.
+// Touch: virtual joystick (left) + action buttons (right) as DOM elements
+// with pointer-events:auto, so every button is really pressable.
+// ROTATION (the v5 lesson, ported): on orientationchange / resize the game
+// releases every held touch + key state and resizes the canvas — a stuck
+// joystick or a frozen frame after rotating the phone cannot happen. The
+// main loop calls input.releaseAll() on those events; resize never reloads.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_ENTER = 4;
@@ -18,10 +20,8 @@ export const ACTION_SLOT2 = 512;
 export const ACTION_SLOT3 = 1024;
 export const ACTION_CONTINUE = 2048;
 
-// Touch devices have no keyboard: the on-foot HUD shows this instead of the
-// key list. (Checked once at load; a desktop browser never matches.)
 export const IS_TOUCH = typeof window !== 'undefined' && ('ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0));
-export const TOUCH_HINT = 'Touch: left stick to move  •  GAS / BRAKE to drive  •  SHOOT / ENTER / PHONE on the right';
+export const TOUCH_HINT = 'Touch: left stick to move • GAS / BRAKE to drive • SHOOT / ENTER on the right';
 
 const KEYMAP = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
@@ -29,28 +29,37 @@ const KEYMAP = {
   ShiftLeft: 'sprint', ShiftRight: 'sprint',
 };
 
-function makeButton(label, right, bottom, action, input) {
+function makeButton(label, right, bottom, onDown, onUp) {
   const b = document.createElement('div');
   b.className = 'vc-btn';
   b.textContent = label;
-  b.style.cssText = `position:absolute;right:${right}px;bottom:${bottom}px;width:64px;height:64px;border-radius:50%;background:rgba(20,16,32,0.55);border:2px solid rgba(255,201,60,0.8);color:#fff7e8;font:700 13px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none;`;
-  const down = (e) => { e.preventDefault(); b.style.background = 'rgba(255,201,60,0.75)'; input.queue(action); };
-  const up = () => { b.style.background = 'rgba(20,16,32,0.55)'; };
-  b.addEventListener('pointerdown', down);
+  b.style.cssText = `position:absolute;right:${right}px;bottom:${bottom}px;width:64px;height:64px;border-radius:50%;background:rgba(20,16,32,0.55);border:2px solid rgba(255,201,60,0.8);color:#fff7e8;font:700 13px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none;pointer-events:auto;`;
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.style.background = 'rgba(255,201,60,0.75)'; if (onDown) onDown(); });
+  const up = () => { b.style.background = 'rgba(20,16,32,0.55)'; if (onUp) onUp(); };
   b.addEventListener('pointerup', up);
   b.addEventListener('pointercancel', up);
   b.addEventListener('pointerleave', up);
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
   return b;
 }
 
 export function createInput(canvas) {
   const held = { up: false, down: false, left: false, right: false, sprint: false };
   let actions = 0;
-  const mouse = { x: 640, y: 360, down: false };
-  // Touch stick state: a normalised -1..1 vector, zero when released.
+  const mouse = { x: 0, y: 0, down: false, aiming: false };
   const touch = { active: false, move: { x: 0, y: 0 }, gas: false, brake: false, shooting: false, elements: null };
+  let knobEl = null;
 
   function queue(action) { actions |= action; }
+  function releaseAll() {
+    // The rotation fix: drop every held state so nothing stays stuck after
+    // the phone is turned or the window is resized.
+    for (const k of Object.keys(held)) held[k] = false;
+    touch.move.x = 0; touch.move.y = 0; touch.active = false;
+    touch.gas = false; touch.brake = false; touch.shooting = false;
+    mouse.down = false; mouse.aiming = false;
+    if (knobEl) { knobEl.style.left = '40px'; knobEl.style.top = '40px'; }
+  }
 
   window.addEventListener('keydown', (event) => {
     const dir = KEYMAP[event.code];
@@ -75,35 +84,38 @@ export function createInput(canvas) {
     const dir = KEYMAP[event.code];
     if (dir) held[dir] = false;
   });
-  window.addEventListener('blur', () => { for (const k of Object.keys(held)) held[k] = false; touch.move.x = 0; touch.move.y = 0; touch.active = false; });
+  window.addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+
+  // Mouse: move tracks the cursor; press-and-hold aims + shoots on foot.
+  // A plain click on the canvas is ALSO a confirm (title / briefing), but
+  // only when the game is not in play — the main loop decides, so a tap on
+  // the briefing can never leak through as a gunshot.
   canvas.addEventListener('pointermove', (event) => {
-    if (event.pointerType === 'touch') return; // touch aiming is the stick
-    const r = canvas.getBoundingClientRect();
-    mouse.x = (event.clientX - r.left) * (canvas.width / r.width);
-    mouse.y = (event.clientY - r.top) * (canvas.height / r.height);
+    if (event.pointerType === 'touch') return;
+    mouse.x = event.clientX; mouse.y = event.clientY;
   });
   canvas.addEventListener('pointerdown', (event) => {
-    if (event.pointerType === 'touch') return; // touch buttons handle taps
-    const r = canvas.getBoundingClientRect();
-    mouse.x = (event.clientX - r.left) * (canvas.width / r.width);
-    mouse.y = (event.clientY - r.top) * (canvas.height / r.height);
-    mouse.down = true;
+    if (event.pointerType === 'touch') return;
+    mouse.x = event.clientX; mouse.y = event.clientY;
+    mouse.down = true; mouse.aiming = true;
     actions |= ACTION_SHOOT;
   });
-  canvas.addEventListener('pointerup', () => { mouse.down = false; });
+  canvas.addEventListener('pointerup', () => { mouse.down = false; mouse.aiming = false; });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ---- touch overlay (only built on touch devices) ----
   if (IS_TOUCH && typeof document !== 'undefined') {
     const root = document.createElement('div');
     root.className = 'vc-touch';
-    root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;';
-    // Virtual joystick, bottom-left.
+    root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:30;';
     const stick = document.createElement('div');
     stick.className = 'vc-joystick';
     stick.style.cssText = 'position:absolute;left:24px;bottom:24px;width:128px;height:128px;border-radius:50%;background:rgba(20,16,32,0.45);border:2px solid rgba(255,255,255,0.35);pointer-events:auto;touch-action:none;';
     const knob = document.createElement('div');
     knob.className = 'vc-knob';
     knob.style.cssText = 'position:absolute;left:40px;top:40px;width:48px;height:48px;border-radius:50%;background:rgba(255,201,60,0.85);';
+    knobEl = knob;
     stick.appendChild(knob);
     let stickId = null;
     function stickMove(e) {
@@ -116,45 +128,33 @@ export function createInput(canvas) {
       knob.style.left = `${40 + dx * 34}px`; knob.style.top = `${40 + dy * 34}px`;
     }
     function stickEnd() { stickId = null; touch.move.x = 0; touch.move.y = 0; touch.active = false; knob.style.left = '40px'; knob.style.top = '40px'; }
-    stick.addEventListener('pointerdown', (e) => { e.preventDefault(); stickId = e.pointerId; stick.setPointerCapture(e.pointerId); stickMove(e); });
+    stick.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); stickId = e.pointerId; try { stick.setPointerCapture(e.pointerId); } catch { /* noop */ } stickMove(e); });
     stick.addEventListener('pointermove', (e) => { if (e.pointerId === stickId) stickMove(e); });
     stick.addEventListener('pointerup', (e) => { if (e.pointerId === stickId) stickEnd(); });
     stick.addEventListener('pointercancel', stickEnd);
     root.appendChild(stick);
-    // Right-hand buttons: GAS / BRAKE drive, ENTER gets in/out of a car,
-    // SHOOT fires toward the facing direction, RADIO cycles, PHONE opens jobs.
-    const gas = makeButton('GAS', 24, 120, 0, { queue: () => {} });
-    gas.addEventListener('pointerdown', () => { touch.gas = true; });
-    gas.addEventListener('pointerup', () => { touch.gas = false; });
-    gas.addEventListener('pointercancel', () => { touch.gas = false; });
-    const brake = makeButton('BRK', 104, 36, 0, { queue: () => {} });
-    brake.addEventListener('pointerdown', () => { touch.brake = true; });
-    brake.addEventListener('pointerup', () => { touch.brake = false; });
-    brake.addEventListener('pointercancel', () => { touch.brake = false; });
-    const enter = makeButton('ENTER', 104, 120, ACTION_ENTER, { queue });
-    const shoot = makeButton('SHOOT', 24, 204, ACTION_SHOOT, { queue });
-    shoot.addEventListener('pointerdown', () => { touch.shooting = true; });
-    shoot.addEventListener('pointerup', () => { touch.shooting = false; });
-    const radio = makeButton('RADIO', 188, 36, ACTION_RADIO, { queue });
-    const phone = makeButton('PHONE', 188, 120, ACTION_PHONE, { queue });
+    const gas = makeButton('GAS', 24, 120, () => { touch.gas = true; }, () => { touch.gas = false; });
+    const brake = makeButton('BRK', 104, 36, () => { touch.brake = true; }, () => { touch.brake = false; });
+    const enter = makeButton('ENTER', 104, 120, () => queue(ACTION_ENTER));
+    const shoot = makeButton('SHOOT', 24, 204, () => { touch.shooting = true; queue(ACTION_SHOOT); }, () => { touch.shooting = false; });
+    const radio = makeButton('RADIO', 188, 36, () => queue(ACTION_RADIO));
+    const phone = makeButton('PHONE', 188, 120, () => queue(ACTION_PHONE));
     for (const b of [gas, brake, enter, shoot, radio, phone]) root.appendChild(b);
     document.body.appendChild(root);
     touch.elements = root;
   }
 
   return {
-    held, mouse, touch,
+    held, mouse, touch, queue, releaseAll,
     move() {
-      // The touch stick wins when it is held; otherwise the keys drive.
       if (touch.active && (Math.abs(touch.move.x) > 0.15 || Math.abs(touch.move.y) > 0.15)) {
         return { x: touch.move.x, y: touch.move.y };
       }
       return {
-        x: (held.right ? 1 : 0) - (held.left ? 1 : 0) + (touch.gas || touch.brake ? 0 : 0),
+        x: (held.right ? 1 : 0) - (held.left ? 1 : 0),
         y: (held.down || touch.brake ? 1 : 0) - (held.up || touch.gas ? 1 : 0),
       };
     },
     takeActions() { const t = actions; actions = 0; return t; },
-    queue,
   };
 }

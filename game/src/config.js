@@ -15,7 +15,7 @@ export const WANTED_DECAY = 18; // seconds hidden with no crime before a star dr
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
 // Police helicopter: circles the player once the heat hits 4 stars.
-export const HELI = { radius: 260, orbitSpeed: 0.55, rotorSpeed: 42, spotlight: 190 };
+export const HELI = { radius: 180, orbitSpeed: 0.55, rotorSpeed: 42, spotlight: 190 };
 
 // Hidden packages: 10 golden parcels tucked beside landmarks across the city.
 // Finding one pays $50 and +2 respect; the HUD tracks n/10.

@@ -6,9 +6,18 @@
 
 An original open-world crime game built for the [make.fun](https://make.fun) bounty **[gta6-01 "Make GTA 6"](https://make.fun/bounty/gta6-01)** — a sun-soaked coastal city to explore on foot and by car, in the spirit of GTA 6, with none of Rockstar's names, characters, map, art or music. Everything here — the city, the characters, the story, the art and the sounds — is original.
 
-## Play it
+## v6 — now in 3D (branch `v6-3d`)
 
-Serve the `game/` folder with any static server, then open `game/index.html` in desktop Chrome. No build step, no network request — every script, image, sound and font is a file under `game/` or generated in code.
+v6 rebuilds Vice Coast as a **Three.js low-poly 3D** open world (vendored under `game/vendor/three.module.js`, zero network at runtime), benchmarked frame-by-frame against the gta6-01 top 10 and GTA V itself:
+
+- **Third-person chase cam** low behind the car (FOV widens with speed) + **on-foot third-person with an animated character** (walk / run / over-shoulder aim / shoot with hit marker, enter & exit cars)
+- **Golden-hour sunset by default** — orange-purple sky, low sun disc, long shadows, brake lights, wet-looking asphalt — plus the day/night cycle and rain from v5
+- **Dense GTA HUD**: mission panel + named police response list (KITE-1, MARLIN-3… with roles and distances), wanted stars, money + clock, weapon slots, crew cards, portrait dialogue, round minimap + health/armour, big speedometer + car name/condition/gear, radio ticker
+- **Busy scenes**: traffic, police cars with flashing light bars, a police helicopter with a searchlight cone, pedestrians, palms, beach + ocean, pier, docks containers, billboards
+- Same content as v5: **10-mission story** ($9,650), Viper gang turf wars, shop, phone side jobs, save/continue, hidden packages, taxi fares, in-car radio
+- **Mobile**: virtual joystick + action buttons, every screen (title, briefing, pause, game over) accepts a real tap, and **rotation is handled without reload** — turning the phone resizes the canvas and releases stuck touch input
+
+Play it: serve `game/` with any static server, then open `game/index.html`. No build step, no network request.
 
 ```sh
 node serve.ts   # then open http://localhost:8080

@@ -2,18 +2,125 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Vice Coast — an original open-world crime game: explore a sun-soaked coastal city on foot and by car, steal cars, dodge the Vice Coast PD (cars, foot cops and a police helicopter), drive taxi fares, tune the in-car radio, and run a 10-mission story with day/night weather, gang turf wars, a shop and phone side jobs, ending in the Vice Coast Finale.">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="description" content="Vice Coast — a 3D open-world crime game in the spirit of GTA 6: explore a sun-soaked coastal city on foot and by car in third-person 3D, steal cars, dodge the Vice Coast PD (cars, foot cops and a police helicopter), and run a 10-mission story with golden-hour sunsets, gang turf wars, a shop and phone side jobs.">
 <link rel="icon" href="data:,">
-<title>Vice Coast — Open-World Crime Game</title>
+<title>Vice Coast — Open-World Crime Game (3D)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #14101f; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .vc-hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff7e8; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .vc-top-left { position: absolute; top: 12px; left: 12px; width: 340px; max-width: 46vw; }
+  .vc-mission { background: rgba(12,10,24,.72); border-left: 4px solid #ffc93c; padding: 8px 10px; border-radius: 4px; }
+  .vc-mission-title { font-weight: 900; font-size: 15px; letter-spacing: .5px; color: #ffc93c; }
+  .vc-mission-bar { height: 6px; background: rgba(255,255,255,.18); border-radius: 3px; margin: 5px 0; overflow: hidden; }
+  .vc-mission-bar div { height: 100%; background: #ffc93c; width: 10%; }
+  .vc-mission-obj { font-size: 13px; font-weight: 600; }
+  .vc-mission-next { font-size: 12px; color: #ffd9a0; margin-top: 2px; }
+  .vc-units { margin-top: 8px; background: rgba(12,10,24,.66); border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+  .vc-unit { display: flex; gap: 8px; padding: 2px 0; }
+  .vc-unit b { color: #ff6b6b; min-width: 64px; }
+  .vc-unit span { color: #ffd9a0; min-width: 76px; }
+  .vc-unit i { font-style: normal; color: #fff; }
+  .vc-unit em { font-style: normal; color: #ff9f43; margin-left: auto; }
+  .vc-unit-more { color: #ffd9a0; padding-top: 2px; }
+  .vc-top-right { position: absolute; top: 12px; right: 12px; text-align: right; }
+  .vc-clock { font-size: 20px; font-weight: 800; }
+  .vc-money { font-size: 22px; font-weight: 900; color: #7dff9a; }
+  .vc-stars { font-size: 22px; letter-spacing: 2px; }
+  .vc-stars span { color: rgba(255,255,255,.25); }
+  .vc-stars span.lit { color: #ffc93c; }
+  .vc-status { font-size: 12px; font-weight: 700; color: #7dff9a; }
+  .vc-right { position: absolute; top: 118px; right: 12px; width: 190px; }
+  .vc-weapon { display: flex; gap: 6px; align-items: center; background: rgba(12,10,24,.6); border-radius: 3px; padding: 3px 7px; margin-bottom: 3px; font-size: 12px; opacity: .55; }
+  .vc-weapon.on { opacity: 1; border: 1px solid #ffc93c; }
+  .vc-weapon b { color: #ffc93c; }
+  .vc-weapon i { font-style: normal; margin-left: auto; color: #fff; }
+  .vc-crew-card { display: flex; gap: 7px; align-items: center; background: rgba(12,10,24,.6); border-radius: 3px; padding: 4px 7px; margin-bottom: 3px; font-size: 11px; }
+  .vc-crew-face { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; color: #14101f; text-shadow: none; flex: none; }
+  .vc-crew-card b { display: block; color: #ffc93c; font-size: 11px; }
+  .vc-crew-card span { color: #ffd9a0; }
+  .vc-bottom-left { position: absolute; left: 12px; bottom: 12px; }
+  .vc-district { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+  .vc-respect { width: 180px; height: 5px; background: rgba(255,255,255,.2); border-radius: 3px; margin-bottom: 6px; overflow: hidden; }
+  .vc-respect div { height: 100%; background: #ff6b9d; }
+  .vc-minimap { width: 180px; height: 180px; border-radius: 50%; border: 3px solid rgba(255,255,255,.75); box-shadow: 0 0 0 3px rgba(0,0,0,.5); display: block; background: #20242e; }
+  .vc-bars { margin-top: 6px; width: 180px; }
+  .vc-bar { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; margin-top: 3px; }
+  .vc-bar-track { flex: 1; height: 8px; background: rgba(255,255,255,.2); border-radius: 4px; overflow: hidden; }
+  .vc-bar-health { height: 100%; background: #2ecc71; }
+  .vc-bar-armor { height: 100%; background: #48dbfb; }
+  .vc-dialog { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; width: 420px; max-width: 52vw; display: flex; gap: 10px; background: rgba(12,10,24,.78); border-radius: 6px; padding: 9px 12px; align-items: center; }
+  .vc-portrait { width: 44px; height: 44px; border-radius: 50%; background: #ff6b9d; color: #14101f; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 900; text-shadow: none; flex: none; }
+  .vc-dialog-name { font-size: 12px; font-weight: 900; color: #ffc93c; }
+  .vc-dialog-line { font-size: 13px; }
+  .vc-bottom-right { position: absolute; right: 12px; bottom: 12px; text-align: right; }
+  .vc-speed { font-size: 44px; font-weight: 900; line-height: 1; }
+  .vc-speed small { font-size: 14px; color: #ffd9a0; }
+  .vc-gear { display: inline-block; background: rgba(12,10,24,.7); border: 1px solid #ffc93c; border-radius: 3px; padding: 1px 8px; font-weight: 900; font-size: 13px; margin: 3px 0; }
+  .vc-car { font-size: 13px; font-weight: 800; }
+  .vc-cond { width: 170px; height: 6px; background: rgba(255,255,255,.2); border-radius: 3px; margin: 4px 0 4px auto; overflow: hidden; }
+  .vc-cond div { height: 100%; background: #2ecc71; }
+  .vc-radio { font-size: 12px; color: #ffd9a0; background: rgba(12,10,24,.6); padding: 3px 8px; border-radius: 3px; display: inline-block; }
+  .vc-banner { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 900; color: #ffc93c; text-align: center; display: none; letter-spacing: 1px; }
+  .vc-district-banner { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 24px; font-weight: 900; display: none; opacity: .85; }
+  .vc-crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 26px; font-weight: 900; color: #fff; display: none; }
+  .vc-hitmarker { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 34px; font-weight: 900; color: #ff3b30; opacity: 0; margin-top: -34px; }
+  .vc-message { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 700; background: rgba(12,10,24,.7); padding: 5px 12px; border-radius: 4px; max-width: 62vw; text-align: center; }
+  /* Touch devices: the right-hand HUD panel would sit under the action
+  buttons, and the joystick would sit on the minimap — hide the panel and
+  lift the minimap clear of the stick. */
+  body.vc-touch .vc-right { display: none; }
+  @media (orientation: portrait) {
+    body.vc-touch .vc-bottom-left { bottom: 172px; }
+    body.vc-touch .vc-message { top: 150px; }
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    body.vc-touch .vc-bottom-left { bottom: 128px; }
+    body.vc-touch .vc-minimap { width: 96px; height: 96px; }
+    body.vc-touch .vc-bars, body.vc-touch .vc-respect { width: 96px; }
+    body.vc-touch .vc-district, body.vc-touch .vc-respect { display: none; }
+  }
+  .vc-shop, .vc-phone { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); background: rgba(12,10,24,.92); border: 2px solid #ffc93c; border-radius: 8px; padding: 14px 18px; display: none; font-size: 14px; pointer-events: auto; }
+  .vc-shop b, .vc-phone b { display: block; color: #ffc93c; font-size: 16px; margin-bottom: 6px; }
+  .vc-shop span, .vc-phone span { display: block; padding: 2px 0; }
+  .vc-shop i, .vc-phone i { display: block; color: #ffd9a0; font-size: 12px; margin-top: 6px; }
+  .vc-screens { position: fixed; inset: 0; z-index: 20; pointer-events: none; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .vc-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff7e8; background: linear-gradient(180deg, rgba(20,8,32,.55), rgba(20,8,32,.82)); pointer-events: auto; padding: 16px; }
+  .vc-logo { font-size: 84px; font-weight: 900; letter-spacing: 4px; line-height: .95; text-shadow: 0 4px 0 #ff5a3c, 0 8px 24px rgba(0,0,0,.6); }
+  .vc-logo span { color: #ffc93c; }
+  .vc-tagline { font-size: 16px; color: #ffd9a0; margin: 10px 0 18px; }
+  .vc-title-stats { font-size: 14px; margin-bottom: 18px; color: #fff; }
+  .vc-bigbtn { pointer-events: auto; font-size: 20px; font-weight: 900; letter-spacing: 1px; color: #14101f; background: #ffc93c; border: none; border-radius: 8px; padding: 14px 34px; margin: 6px; cursor: pointer; touch-action: manipulation; }
+  .vc-bigbtn:active { background: #ffdf7a; }
+  .vc-btn-ghost { background: rgba(255,255,255,.15); color: #fff7e8; border: 2px solid rgba(255,255,255,.5); }
+  .vc-keys { font-size: 13px; color: #ffd9a0; margin-top: 14px; }
+  .vc-brief-kicker { font-size: 15px; font-weight: 900; color: #ffc93c; letter-spacing: 2px; }
+  .vc-brief-title { font-size: 52px; font-weight: 900; }
+  .vc-brief-text { font-size: 17px; max-width: 560px; margin: 12px 0; line-height: 1.5; }
+  .vc-brief-reward { font-size: 20px; font-weight: 900; color: #7dff9a; margin-bottom: 14px; }
+  .vc-over-title { font-size: 72px; font-weight: 900; color: #ff3b30; text-shadow: 0 4px 0 rgba(0,0,0,.5); }
+  .vc-win-title { color: #ffc93c; font-size: 52px; }
+  @media (max-width: 760px), (orientation: portrait) {
+    .vc-logo { font-size: 52px; }
+    .vc-top-left { width: 250px; }
+    .vc-mission-title { font-size: 12px; }
+    .vc-mission-obj, .vc-mission-next { font-size: 11px; }
+    .vc-units { display: none; }
+    .vc-right { display: none; }
+    .vc-minimap { width: 120px; height: 120px; }
+    .vc-bars, .vc-respect { width: 120px; }
+    .vc-dialog { display: none; }
+    .vc-speed { font-size: 32px; }
+    .vc-banner { font-size: 22px; }
+    .vc-brief-title { font-size: 34px; }
+    .vc-over-title { font-size: 44px; }
+  }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Vice Coast: explore a coastal city on foot and by car, steal cars, dodge police, and run story missions"></canvas>
+<canvas id="game" aria-label="Vice Coast: explore a coastal city on foot and by car in 3D, steal cars, dodge police, and run story missions"></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 <script type="module" src="./src/main.js"></script>
 </body>

@@ -165,6 +165,14 @@ export function createInput(canvas) {
     const phone = makeButton('PHONE', 188, 120, ACTION_PHONE, { queue });
     for (const b of [gas, brake, enter, shoot, radio, phone]) controlsEl.appendChild(b);
     root.appendChild(controlsEl);
+    // A rotation can interrupt an active touch mid-gesture (the pointer
+    // never gets its pointerup): release the stick and the held buttons
+    // so the player never keeps moving or shooting after the phone turns.
+    function releaseTouch() {
+      stickEnd();
+      touch.gas = false; touch.brake = false; touch.shooting = false;
+      for (const b of [gas, brake, shoot]) b.style.background = 'rgba(20,16,32,0.55)';
+    }
     // Big START button for the menu screens (title / briefing / paused /
     // game over). It queues startAction, which main.js sets per screen.
     startBtn = document.createElement('div');
@@ -187,9 +195,14 @@ export function createInput(canvas) {
     rotateHint.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);top:12px;max-width:92vw;padding:8px 14px;border-radius:999px;background:rgba(20,16,32,0.75);color:#fff7e8;font:600 13px system-ui,sans-serif;text-align:center;pointer-events:none;display:none;white-space:nowrap;';
     root.appendChild(rotateHint);
     const updateRotateHint = () => { rotateHint.style.display = window.innerHeight > window.innerWidth ? 'block' : 'none'; };
+    // Rotation changes the viewport: the canvas resize in render.js
+    // re-fits the 1280x720 view, the fixed-position controls follow the
+    // new viewport on their own, and any touch held mid-gesture is
+    // released so nothing sticks after the turn.
+    function onViewportChange() { updateRotateHint(); releaseTouch(); }
     updateRotateHint();
-    window.addEventListener('resize', updateRotateHint);
-    window.addEventListener('orientationchange', updateRotateHint);
+    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('orientationchange', onViewportChange);
     document.body.appendChild(root);
     touch.elements = root;
   }

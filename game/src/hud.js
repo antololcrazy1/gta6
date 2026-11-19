@@ -96,7 +96,7 @@ export function createHUD(callbacks) {
     <div class="vc-title-stats" id="vc-title-stats"></div>
     <button class="vc-bigbtn" id="vc-btn-start">▶ &nbsp;START</button>
     <button class="vc-bigbtn vc-btn-ghost" id="vc-btn-continue" style="display:none">CONTINUE — RESUME YOUR RUN</button>
-    <div class="vc-keys">WASD drive / walk &nbsp;·&nbsp; E enter car &nbsp;·&nbsp; Mouse aim, click shoot &nbsp;·&nbsp; P phone &nbsp;·&nbsp; Q radio</div>
+    <div class="vc-keys">WASD drive / walk &nbsp;·&nbsp; F / SPACE enter car &nbsp;·&nbsp; Mouse aim, click shoot &nbsp;·&nbsp; P phone &nbsp;·&nbsp; Q radio</div>
     <div class="vc-keys">Touch: left stick to move · GAS / BRAKE to drive · SHOOT / ENTER on the right</div>
   </div>
   <div class="vc-screen" id="vc-screen-brief" style="display:none">

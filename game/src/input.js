@@ -66,6 +66,7 @@ export function createInput(canvas) {
     if (dir) { held[dir] = true; event.preventDefault(); return; }
     if (event.repeat) return;
     if (event.code === 'Space' || event.code === 'Enter') actions |= ACTION_CONFIRM | ACTION_ENTER;
+    else if (event.code === 'KeyF') actions |= ACTION_ENTER;
     else if (event.code === 'KeyE') actions |= ACTION_INTERACT;
     else if (event.code === 'KeyJ') actions |= ACTION_SHOOT;
     else if (event.code === 'KeyP') actions |= ACTION_PHONE;

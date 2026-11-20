@@ -103,64 +103,107 @@ let personSeq = 0;
 export function makePerson(shirt, pants, skin = 0xc68863) {
   const g = new THREE.Group();
   const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+  // Upper body in its own group (pivot at the hips) so the walk bob and
+  // the sprint lean move torso/head/arms together, never the legs.
+  const upper = new THREE.Group();
+  upper.position.y = 0.72;
+  g.add(upper);
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.34), mat(shirt));
-  torso.position.y = 1.05; torso.castShadow = true; g.add(torso);
+  torso.position.y = 1.05 - 0.72; torso.castShadow = true; upper.add(torso);
   // Jacket panel: a darker chest strip so the torso is not one flat slab.
   const jacket = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.06), mat(0x2c2f3a));
-  jacket.position.set(0, 1.08, 0.18); g.add(jacket);
+  jacket.position.set(0, 1.08 - 0.72, 0.18); upper.add(jacket);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.34), mat(skin));
-  head.position.y = 1.62; head.castShadow = true; g.add(head);
+  head.position.y = 1.62 - 0.72; head.castShadow = true; upper.add(head);
   // Cap with a brim (GTA look) instead of a flat hair slab.
   const cap = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.36), mat(0xffc93c));
-  cap.position.y = 1.84; g.add(cap);
+  cap.position.y = 1.84 - 0.72; upper.add(cap);
   const brim = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.04, 0.22), mat(0xffc93c));
-  brim.position.set(0, 1.8, 0.26); g.add(brim);
-  const legL = new THREE.Group(); legL.position.set(-0.16, 0.72, 0);
-  const legR = new THREE.Group(); legR.position.set(0.16, 0.72, 0);
-  for (const leg of [legL, legR]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.72, 0.26), mat(pants));
-    m.position.y = -0.36; m.castShadow = true; leg.add(m);
+  brim.position.set(0, 1.8 - 0.72, 0.26); upper.add(brim);
+  // Legs: thigh (hip pivot) + shin (knee pivot) + shoe. The old rig was a
+  // single rigid stick per leg: the foot could never lift and plant, it
+  // just swept an arc above the ground while the body glided — the ghost
+  // read. A real knee lets the foot lift on the swing and plant flat on
+  // the stance.
+  function makeLeg(sideX) {
+    const leg = new THREE.Group(); leg.position.set(sideX, 0.72, 0);
+    const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.36, 0.26), mat(pants));
+    thigh.position.y = -0.18; thigh.castShadow = true; leg.add(thigh);
+    const knee = new THREE.Group(); knee.position.y = -0.36; leg.add(knee);
+    const shin = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.36, 0.24), mat(pants));
+    shin.position.y = -0.18; shin.castShadow = true; knee.add(shin);
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.36), mat(0x1c1c22));
-    shoe.position.set(0, -0.68, 0.04); leg.add(shoe);
+    shoe.position.set(0, -0.31, 0.04); knee.add(shoe);
     g.add(leg);
+    return { leg, knee };
   }
-  const armL = new THREE.Group(); armL.position.set(-0.42, 1.36, 0);
-  const armR = new THREE.Group(); armR.position.set(0.42, 1.36, 0);
+  const lL = makeLeg(-0.16), lR = makeLeg(0.16);
+  const armL = new THREE.Group(); armL.position.set(-0.42, 1.36 - 0.72, 0);
+  const armR = new THREE.Group(); armR.position.set(0.42, 1.36 - 0.72, 0);
   for (const arm of [armL, armR]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.62, 0.22), mat(shirt));
     m.position.y = -0.31; m.castShadow = true; arm.add(m);
     const hand = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.2), mat(skin));
     hand.position.y = -0.64; arm.add(hand);
+    upper.add(arm);
   }
   const gun = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.1, 0.12), mat(0x181818));
   gun.position.set(0, -0.62, 0.22); gun.visible = false; armR.add(gun);
   const gunBarrel = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.08), mat(0x181818));
   gunBarrel.position.set(0.4, -0.62, 0.22); gunBarrel.visible = false; armR.add(gunBarrel);
-  g.userData = { legL, legR, armL, armR, gun, gunBarrel, phase: ((personSeq += 1) * 1.7) % 6, torso, head };
+  g.userData = { legL: lL.leg, legR: lR.leg, kneeL: lL.knee, kneeR: lR.knee, armL, armR, gun, gunBarrel, phase: ((personSeq += 1) * 1.7) % 6, torso, head, upper, breath: 0 };
   return g;
 }
 
 export function animatePerson(g, speed, dt, aiming, shooting) {
   const u = g.userData;
   const moving = speed > 20;
-  if (moving) u.phase += dt * speed * 0.045;
-  const swing = moving ? Math.sin(u.phase) * (speed > 300 ? 0.85 : 0.6) : 0;
+  const run = speed > 300;
+  // The walk phase advances with SIM time (dt is the sim dt the caller
+  // passes), not with render calls: at 30 fps the old per-render advance
+  // halved the cadence while the body kept full speed — the ghost glide.
+  // dt is 0 on the very first frame; guard so the phase never goes NaN.
+  if (moving && dt > 0) u.phase += dt * speed * 0.055;
+  u.breath += dt > 0 ? dt : 0;
+  const A = run ? 0.95 : 0.72; // hip swing amplitude (was 0.85 / 0.6)
+  const swing = moving ? Math.sin(u.phase) * A : 0;
+  const c = Math.cos(u.phase);
   u.legL.rotation.x = swing;
   u.legR.rotation.x = -swing;
+  // Knees: bend while the leg swings forward (foot lifting off the
+  // ground), straight while it plants and carries the body. A leg swings
+  // forward when its thigh angle is falling: legL when cos(phase) < 0.
+  const K = run ? 1.15 : 0.95;
+  u.kneeL.rotation.x = moving ? K * Math.max(0, -c) : 0;
+  u.kneeR.rotation.x = moving ? K * Math.max(0, c) : 0;
   if (aiming || shooting) {
     u.armR.rotation.x = -Math.PI / 2 + 0.08;
     u.armL.rotation.x = -Math.PI / 2 + 0.25;
     u.armL.rotation.z = 0.5;
     u.legL.rotation.x *= 0.4; u.legR.rotation.x *= 0.4;
+    u.kneeL.rotation.x *= 0.4; u.kneeR.rotation.x *= 0.4;
     u.gun.visible = true; if (u.gunBarrel) u.gunBarrel.visible = true;
   } else {
+    // Arms swing OPPOSITE to the same-side leg. The old code set armR
+    // twice — the second line overwrote it to -swing, so both arms swung
+    // together like a zombie; that was half the ghost read.
     u.armL.rotation.x = -swing * 0.8;
     u.armR.rotation.x = swing * 0.8;
-    u.armL.rotation.z = 0; u.armR.rotation.x = -swing * 0.8;
+    u.armL.rotation.z = 0;
     u.gun.visible = false; if (u.gunBarrel) u.gunBarrel.visible = false;
   }
-  // Idle breathing so standing figures are not statues.
-  u.torso.position.y = 1.05 + (moving ? 0 : Math.sin(u.phase * 0.5) * 0.015);
+  // Walk bob + sprint lean, on the upper body only — the legs stay
+  // planted. Bob peaks at mid-stance (|sin phase|), dips at double
+  // support (legs passing). No bob at all while moving was the other half
+  // of the float: the body hovered at a fixed height.
+  if (moving) {
+    u.upper.position.y = 0.72 + Math.abs(Math.sin(u.phase)) * (run ? 0.05 : 0.035);
+    u.upper.rotation.x = run ? 0.1 : 0.03;
+  } else {
+    // Idle breathing so standing figures are not statues.
+    u.upper.position.y = 0.72 + Math.sin(u.breath * 2) * 0.015;
+    u.upper.rotation.x = 0;
+  }
 }
 
 // ---- low-poly car: low wide sports body + cabin + wheels with rims +
@@ -739,6 +782,15 @@ export function createRenderer3D(canvas) {
     const speedKmh = Math.abs(p.speed || 0) * 0.32;
     const aiming = !!opts.aiming;
     const dt = opts.dt || 1 / 60;
+    // Sim dt: how much game time this frame actually advanced. The walk
+    // phase runs on sim time (see animatePerson) so the gait stays in
+    // sync at 30 fps too; dt alone is one render call, which is 1/60 s
+    // only at a full 60 fps.
+    const simDt = opts.simDt != null ? opts.simDt : dt;
+    // Touch camera orbit (left-side swipe): an offset added to the base
+    // camera angle, so the view turns around the player while the player
+    // keeps facing/moving their own way. 0 when no drag happened.
+    const camYaw = opts.camYaw || 0;
 
     // ---- sync cars (cull far ones) ----
     const seenCars = new Set();
@@ -779,7 +831,7 @@ export function createRenderer3D(canvas) {
       g.position.copy(to3(ped.x, ped.y, 0));
       g.rotation.y = rotY(ped.angle);
       g.visible = true;
-      animatePerson(g, ped.flee > 0 ? 150 : ped.speed, dt, false, false);
+      animatePerson(g, ped.flee > 0 ? 150 : ped.speed, simDt, false, false);
     });
     // Foot cops: reuse the first ped slots after the peds (separate pool).
     st.cops.forEach((cop, i) => {
@@ -792,7 +844,7 @@ export function createRenderer3D(canvas) {
       g.position.copy(to3(cop.x, cop.y, 0));
       g.rotation.y = rotY(Math.atan2(p.y - cop.y, p.x - cop.x));
       g.visible = true;
-      animatePerson(g, 200, dt, false, false);
+      animatePerson(g, 200, simDt, false, false);
     });
 
     // ---- player character (hidden while driving) ----
@@ -801,7 +853,7 @@ export function createRenderer3D(canvas) {
       playerMesh.position.copy(pp);
       const face = aiming && opts.aimAngle != null ? opts.aimAngle : p.angle;
       playerMesh.rotation.y = rotY(face);
-      animatePerson(playerMesh, Math.abs(p.speed || 0), dt, aiming, !!opts.shooting);
+      animatePerson(playerMesh, Math.abs(p.speed || 0), simDt, aiming, !!opts.shooting);
     }
 
     // ---- helicopter ----
@@ -949,7 +1001,7 @@ export function createRenderer3D(canvas) {
       // When the heli is up, pitch the look-target up (y 1.3 -> 4.0) so
       // the heli body clears the top edge instead of being cut to rotor
       // blades only; the car stays in the lower frame.
-      const a = car.angle;
+      const a = car.angle + camYaw;
       const back = 5.6 + speedF * 2.2;
       const up = 2.1 + speedF * 0.35;
       const lookY = st.heli ? 4.0 : 1.3;
@@ -959,7 +1011,7 @@ export function createRenderer3D(canvas) {
         58 + speedF * 12, 0.001);
     } else if (aiming) {
       // Over-shoulder: character left-of-centre, gun raised, crosshair ahead.
-      const a = opts.aimAngle != null ? opts.aimAngle : p.angle;
+      const a = (opts.aimAngle != null ? opts.aimAngle : p.angle) + camYaw;
       const right = a + Math.PI / 2;
       placeCam(
         new THREE.Vector3(
@@ -969,7 +1021,7 @@ export function createRenderer3D(canvas) {
         new THREE.Vector3(pp.x + Math.cos(a) * 14, 1.6, pp.z + Math.sin(a) * 14),
         52, 0.0001);
     } else {
-      const a = p.angle;
+      const a = p.angle + camYaw;
       placeCam(
         new THREE.Vector3(pp.x - Math.cos(a) * 6.8, 3.0, pp.z - Math.sin(a) * 6.8),
         new THREE.Vector3(pp.x + Math.cos(a) * 6, 1.3, pp.z + Math.sin(a) * 6),

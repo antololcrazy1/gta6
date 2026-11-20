@@ -210,6 +210,13 @@ function runGame() {
     if (world.state.shop.open || world.state.phone.open) return;
     const move = input.move();
     const st = world.state;
+    // Touch camera drag: after the drag ends, the orbit eases back
+    // behind the player while moving (half-life ~0.9 s); while standing
+    // still the dragged view holds so the player can look around.
+    if (!input.touch.camDragging && Math.abs(st.player.speed || 0) > 20) {
+      input.touch.camYaw *= Math.pow(0.5, STEP / 0.9);
+      if (Math.abs(input.touch.camYaw) < 0.005) input.touch.camYaw = 0;
+    }
     aiming = (!st.player.inCar) && (input.mouse.aiming || input.touch.shooting);
     aimAngle = computeAim();
     const beforeHealth = enemyHealth();
@@ -247,11 +254,14 @@ function runGame() {
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     handleActions();
+    // Count the sim steps this frame: the walk phase runs on sim time
+    // (simDt), not on render calls, so the gait stays in sync at 30 fps.
+    let stepsThisFrame = 0;
     if (screen === 'title' || screen === 'play') {
-      while (accumulator >= STEP && (screen === 'title' || screen === 'play')) { step(); accumulator -= STEP; }
+      while (accumulator >= STEP && (screen === 'title' || screen === 'play')) { step(); accumulator -= STEP; stepsThisFrame += 1; }
     } else accumulator = 0;
     const saveData = hasSave() ? loadSave() : null;
-    renderer3d.render(world.state, screen, time, { dt: STEP, aiming, aimAngle, shooting: input.mouse.down || input.touch.shooting });
+    renderer3d.render(world.state, screen, time, { dt: STEP, simDt: stepsThisFrame * STEP, aiming, aimAngle, shooting: input.mouse.down || input.touch.shooting, camYaw: input.touch.camYaw, camDragging: input.touch.camDragging });
     hud.update(world.state, screen, {
       time, radioIdx, aiming,
       best, hasSave: !!saveData,

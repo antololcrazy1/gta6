@@ -47,8 +47,10 @@ export function createInput(canvas) {
   const held = { up: false, down: false, left: false, right: false, sprint: false };
   let actions = 0;
   const mouse = { x: 0, y: 0, down: false, aiming: false };
-  const touch = { active: false, move: { x: 0, y: 0 }, gas: false, brake: false, shooting: false, elements: null };
+  const touch = { active: false, move: { x: 0, y: 0 }, gas: false, brake: false, shooting: false, elements: null, camYaw: 0, camDragging: false };
   let knobEl = null;
+  // Touch camera drag: the pointer being tracked + its last x.
+  let camId = null, camLastX = 0;
   // Driving-mode buttons (toggled by setInCar): GAS/BRK only make sense in
   // a car, SHOOT only on foot. Kept here so setInCar can flip them.
   let gasBtn = null, brakeBtn = null, shootBtn = null;
@@ -91,6 +93,7 @@ export function createInput(canvas) {
     for (const k of Object.keys(held)) held[k] = false;
     touch.move.x = 0; touch.move.y = 0; touch.active = false;
     touch.gas = false; touch.brake = false; touch.shooting = false;
+    touch.camYaw = 0; touch.camDragging = false; camId = null;
     mouse.down = false; mouse.aiming = false;
     if (knobEl) { knobEl.style.left = '40px'; knobEl.style.top = '40px'; }
     layoutTouchButtons();
@@ -139,6 +142,34 @@ export function createInput(canvas) {
   });
   canvas.addEventListener('pointerup', () => { mouse.down = false; mouse.aiming = false; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Touch camera drag (Hanz: swipe the LEFT side of the screen left/right
+  // to turn the camera; the joystick is movement only, on foot and in a
+  // car). Attached to the canvas, not to an overlay: the joystick, the
+  // action buttons, the HUD panels and the big buttons are separate
+  // elements above the canvas, so a touch that starts on any of them
+  // never reaches here — no conflict by construction. A touch that starts
+  // on the right half is ignored (that side is buttons), and a touch that
+  // starts on the joystick knob is the analog stick, not a drag: the
+  // stick element intercepts it first and stops propagation.
+  // The canvas has touch-action:none, so pointermove fires for the whole
+  // drag instead of the browser stealing it as a scroll.
+  canvas.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'touch' || camId !== null) return;
+    if (event.clientX > window.innerWidth * 0.5) return;
+    camId = event.pointerId; camLastX = event.clientX; touch.camDragging = true;
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (event.pointerType !== 'touch' || event.pointerId !== camId) return;
+    const dx = event.clientX - camLastX; camLastX = event.clientX;
+    // Drag right -> view turns right (forward azimuth grows); a full
+    // half-screen swipe is ~100 deg. Clamped to +/-180 deg so a long
+    // drag can never spin the camera around wildly.
+    touch.camYaw = Math.max(-Math.PI, Math.min(Math.PI, touch.camYaw + dx * 0.0045));
+  });
+  const camEnd = (event) => { if (event.pointerId === camId) { camId = null; touch.camDragging = false; } };
+  canvas.addEventListener('pointerup', camEnd);
+  canvas.addEventListener('pointercancel', camEnd);
 
   // ---- touch overlay (only built on touch devices) ----
   if (IS_TOUCH && typeof document !== 'undefined') {

@@ -40,7 +40,7 @@ function putPlayerInCar(world, x, y, angle) {
 // Move them to a side road before the shot.
 function clearParkedNear(st, x, y, r) {
   for (const c of st.cars) {
-    if (c.parked && Math.hypot(c.x - x, c.y - y) < r) { c.x = 1856; c.y = 2240 + (c.id % 6) * 30; }
+    if (c.parked && Math.hypot(c.x - x, c.y - y) < r) { c.x = 1856; c.y = 1792 + (c.id % 6) * 30; }
   }
 }
 
@@ -72,14 +72,14 @@ export function stageShot(name, world) {
     // roadblock ahead and a wrecked car burning in the frame. Start far
     // east (x=3400) so 6 s at full speed still leaves the car mid-city.
     world.weather.force('sunset', false);
-    putPlayerInCar(world, 3400, 960, Math.PI);
-    clearParkedNear(st, 3400, 960, 900);
+    putPlayerInCar(world, 3400, 768, Math.PI);
+    clearParkedNear(st, 3400, 768, 900);
     world.startMission(5); // Vice Nights: 4 stars, heli already up.
     for (let i = 0; i < 6 / STEP; i += 1) {
-      const ev = world.step(STEP, drivePilot(st, 960, -1), false);
+      const ev = world.step(STEP, drivePilot(st, 768, -1), false);
       if (ev & EVENT_OVER) break;
       const car = st.cars.find((c) => c.id === st.player.carId);
-      if (car) { car.speed = Math.max(car.speed, 420); car.health = 100; }
+      if (car) { car.speed = Math.max(car.speed, 400); car.health = 100; }
       st.player.health = 100;
       if (st.wanted < 4) st.wanted = 4;
     }
@@ -102,13 +102,13 @@ export function stageShot(name, world) {
       // the render cull distance and the road read empty.
       const traffic = st.cars.filter((c) => !c.cop && c.id !== pc.id && c.traffic).slice(0, 6);
       traffic.forEach((c, i) => {
-        c.x = pc.x - 70 - i * 48; c.y = 960 + (i % 2 === 0 ? -18 : 18);
+        c.x = pc.x - 70 - i * 48; c.y = 768 + (i % 2 === 0 ? -18 : 18);
         c.angle = i % 2 === 0 ? Math.PI : 0; c.speed = 140;
       });
       // Two cop cars tight on the player's tail, light bars flashing.
       const tail = cops.slice(0, 2);
       tail.forEach((cop, i) => {
-        cop.car.x = pc.x + 85; cop.car.y = 960 + (i === 0 ? -22 : 22);
+        cop.car.x = pc.x + 85; cop.car.y = 768 + (i === 0 ? -22 : 22);
         cop.car.angle = Math.PI; cop.car.speed = 380;
         cop.x = cop.car.x; cop.y = cop.car.y;
       });
@@ -123,12 +123,12 @@ export function stageShot(name, world) {
         t.cop = true; t.traffic = false; t.color = '#2f6fd0'; blockers.push(t);
       }
       blockers.forEach((car, i) => {
-        car.x = pc.x - 340; car.y = 960 - 24 + i * 24;
+        car.x = pc.x - 340; car.y = 768 - 24 + i * 24;
         car.angle = Math.PI / 2 + (i === 1 ? 0.15 : -0.15); car.speed = 0;
       });
       // A wrecked traffic car burning just before the roadblock.
-      const wreck = st.cars.find((c) => !c.cop && c.id !== pc.id && Math.abs(c.y - 960) < 200 && !traffic.includes(c));
-      if (wreck) { wreck.x = pc.x - 295; wreck.y = 960 + 26; wreck.health = 5; fireball(st, wreck.x, wreck.y); }
+      const wreck = st.cars.find((c) => !c.cop && c.id !== pc.id && Math.abs(c.y - 768) < 200 && !traffic.includes(c));
+      if (wreck) { wreck.x = pc.x - 295; wreck.y = 768 + 26; wreck.health = 5; fireball(st, wreck.x, wreck.y); }
       // Corridor sweep: any other car loitering within 200 units of the
       // player (e.g. a white traffic car between the chase camera and the
       // player car — v6.1's chase had one looming in the frame) is moved
@@ -137,7 +137,7 @@ export function stageShot(name, world) {
       for (const c of st.cars) {
         if (staged.has(c.id) || c.cop) continue;
         if (Math.hypot(c.x - st.player.x, c.y - st.player.y) < 200) {
-          c.x = 3200; c.y = 2240 + (c.id % 6) * 30; c.angle = 0; c.speed = 0;
+          c.x = 3200; c.y = 1792 + (c.id % 6) * 30; c.angle = 0; c.speed = 0;
         }
       }
     }
@@ -150,8 +150,8 @@ export function stageShot(name, world) {
   // finale frame is beach + sunset, not a city street. Slight angle so the
   // camera sees a 3/4 rear view (orange flank, not a flat black cabin).
   world.weather.force('sunset', false);
-  putPlayerInCar(world, 320, 1280, Math.PI - 0.35);
-  st.money = 9650; st.respect = 150;
+  putPlayerInCar(world, 320, 1024, Math.PI - 0.35);
+  st.money = 9850; st.respect = 150;
   world.debugWin();
   for (let i = 0; i < 2 / STEP; i += 1) world.step(STEP, { move: { x: 0, y: 0 } }, true);
   return { screen: 'win', best: st.money };
@@ -169,11 +169,11 @@ export function stagePlayShot(world) {
   world.weather.force('sunset', false);
   world.startMission(6); // Sunset Showdown: 5 stars, pier escape, 75 s clock.
   st.wanted = 2; // staged at 2 stars so the frame stays a shootout, not a bust.
-  st.player.x = 560; st.player.y = 1280; st.player.angle = Math.PI;
+  st.player.x = 560; st.player.y = 1024; st.player.angle = Math.PI;
   st.player.inCar = false; st.player.carId = -1;
   st.player.ammo = 60; st.player.health = 100; st.player.armor = 50;
   st.money = 3150; st.respect = 80;
-  clearParkedNear(st, 560, 1280, 260);
+  clearParkedNear(st, 560, 1024, 260);
   // Let the cops close in for ~2 s so they are in the frame ahead.
   for (let i = 0; i < 2 / STEP; i += 1) {
     const ev = world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: Math.PI, enter: false }, false);
@@ -212,6 +212,17 @@ export function stagePlayShot(world) {
     world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle, enter: false }, false);
     st.player.health = 100;
   }
+  // Let the last volley's muzzle/hit bursts disperse before the frame is
+  // taken: at age 0 they stack into one solid square (a floating pale
+  // panel / pink box in the shot). 6 steps = 0.1 s, deterministic.
+  for (let i = 0; i < 6; i += 1) {
+    world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle, enter: false }, false);
+    st.player.health = 100;
+  }
+  // The volley/settle can raise the heat (a bullet clips a ped, a cop car
+  // pops) — the shot is staged at 2 stars, so restore it and drop any
+  // heli that spawned on the way (updateHeli only clears it on a step).
+  st.wanted = 2; st.heli = null;
   st.message = 'Sunset Showdown — lose the heat!'; st.messageTimer = 4; st.districtTimer = 0; st.missionFlash = 0;
   return { screen: 'play', best: st.money, aiming: true, aimAngle, showHit: true };
 }
@@ -223,7 +234,7 @@ export function stageHeistShot(world) {
   // brighter now too, for live play). Real rules all the way:
   // startMission(8) sets the turf beacon and spawns 3 Viper cars, the gang
   // closes in for a drive-by, and shoot() fires real bullets with muzzle
-  // particles. The player holds the turf marker at (2624, 960); one Viper
+  // particles. The player holds the turf marker at (2624, 768); one Viper
   // car burns in the frame.
   world.reset();
   const st = world.state;
@@ -231,7 +242,7 @@ export function stageHeistShot(world) {
   world.startMission(8); // Neon Reign, stage 0: "Torch 3 gang cars".
   // Hold the turf from just off the beacon: standing on the marker puts
   // the camera inside the beacon pillar and washes the frame yellow.
-  st.player.x = 2654; st.player.y = 960; st.player.angle = 0;
+  st.player.x = 2654; st.player.y = 768; st.player.angle = 0;
   st.player.inCar = false; st.player.carId = -1;
   st.player.ammo = 60; st.player.health = 100; st.player.armor = 50;
   st.money = 7150; st.respect = 160;
@@ -260,6 +271,25 @@ export function stageHeistShot(world) {
     target.health = 5;
     fireball(st, target.x, target.y);
   }
+  // Peds crowding the camera's near field read as floating torsos at the
+  // frame edge (a pink-shirt ped stood at the left edge in v6.4). Push any
+  // ped near the player ahead into the mid-ground, inside the frame.
+  st.peds.forEach((ped, i) => {
+    if (ped.alive && Math.hypot(ped.x - st.player.x, ped.y - st.player.y) < 120) {
+      ped.x = st.player.x + 70 + (i % 3) * 30;
+      ped.y = st.player.y + (i % 2 === 0 ? -70 : 70);
+    }
+  });
+  // Let the muzzle burst + fireball ring disperse before the frame is
+  // taken: at age 0 they stack into one solid square (a floating pale
+  // panel / pink box in the shot). 6 steps = 0.1 s, deterministic.
+  for (let i = 0; i < 6; i += 1) {
+    world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle, enter: false }, false);
+    st.player.health = 100;
+  }
+  // A stray bullet can clip a ped during the settle and raise the heat;
+  // the shot is staged at 0 stars, so restore it.
+  st.wanted = 0; st.heli = null;
   st.message = 'Neon Reign — torch the Viper cars!'; st.messageTimer = 4; st.districtTimer = 0; st.missionFlash = 0;
   return { screen: 'play', best: st.money, aiming: true, aimAngle };
 }

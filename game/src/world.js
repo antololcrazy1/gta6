@@ -1,4 +1,4 @@
-// Vice Coast rules v5: no drawing, no browser. A 3600x2600 coastal city in
+// Vice Coast rules v5: no drawing, no browser. A 3600x2080 coastal city in
 // four districts, traffic and pedestrians, stealable cars, wanted stars and
 // police, a 10-mission story, combat, pickups, money and respect — plus a
 // day/night weather cycle, a rival gang holding turf, a shop, phone side
@@ -24,7 +24,7 @@ export const EVENT_WANTED = 16;
 export const EVENT_SHOT = 32;
 
 export const ROADS_V = [320, 704, 1088, 1472, 1856, 2240, 2624, 3008, 3392];
-export const ROADS_H = [320, 640, 960, 1280, 1600, 1920, 2240];
+export const ROADS_H = [256, 512, 768, 1024, 1280, 1536, 1792]; // v6.4: height x0.8, width kept 3600
 const CAR_COLORS = ['#e74c3c', '#f1c40f', '#3498db', '#ecf0f1', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#ff6b9d', '#7f8c8d'];
 const PED_COLORS = ['#ff9f43', '#48dbfb', '#1dd1a1', '#f368e0', '#ff6b6b', '#c8d64f', '#a29bfe', '#fd79a8'];
 const NAMES = ['Maya', 'Rico', 'Lena', 'Dario', 'Sofia', 'Marco', 'Nina', 'Tomas'];
@@ -61,18 +61,18 @@ export function createWorld(random) {
     }
   }
   const landmarks = {
-    pier: { x: 210, y: 1280, label: 'Sunset Pier' },
-    boat: { x: 110, y: 1280, label: 'Pier boat' },
-    hotel: { x: 2624, y: 640, label: 'Neon Hotel' },
-    docks: { x: 3300, y: 2240, label: 'Coral Docks' },
-    arcade: { x: 1088, y: 960, label: 'Pixel Arcade' },
-    hideout: { x: 704, y: 2240, label: 'Hideout' },
-    bank: { x: 1856, y: 1280, label: 'Coral Bank' },
-    packages: [{ x: 1472, y: 640 }, { x: 2240, y: 1600 }, { x: 3008, y: 960 }],
+    pier: { x: 210, y: 1024, label: 'Sunset Pier' },
+    boat: { x: 110, y: 1024, label: 'Pier boat' },
+    hotel: { x: 2624, y: 512, label: 'Neon Hotel' },
+    docks: { x: 3300, y: 1792, label: 'Coral Docks' },
+    arcade: { x: 1088, y: 768, label: 'Pixel Arcade' },
+    hideout: { x: 704, y: 1792, label: 'Hideout' },
+    bank: { x: 1856, y: 1024, label: 'Coral Bank' },
+    packages: [{ x: 1472, y: 512 }, { x: 2240, y: 1280 }, { x: 3008, y: 768 }],
   };
 
   // ---- dynamic state ----
-  const player = { x: 320, y: 1280, angle: 0, health: PLAYER.health, armor: 0, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0 };
+  const player = { x: 320, y: 1024, angle: 0, health: PLAYER.health, armor: 0, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0 };
   const cars = []; const peds = []; const cops = []; const bullets = []; const pickups = []; const particles = [];
   const gangCars = [];
   const state = {
@@ -90,10 +90,15 @@ export function createWorld(random) {
   };
 
   // ---- small shared helpers ----
-  function burst(x, y, color, n, speed) {
+  // Particles spawn in a small disc around (x, y), not exactly on one
+  // point: a burst caught at age 0 (the staged shots fire on the last
+  // step) reads as one solid square instead of a cloud. minSpeed/lifeMax
+  // let a muzzle flash disperse fast instead of hovering at the gun.
+  function burst(x, y, color, n, speed, minSpeed = 20, lifeMax = 0.8) {
     for (let i = 0; i < n; i += 1) {
       const a = random() * Math.PI * 2;
-      particles.push({ x, y, vx: Math.cos(a) * range(random, 20, speed), vy: Math.sin(a) * range(random, 20, speed), life: range(random, 0.3, 0.8), max: 0.8, color, size: range(random, 2, 5) });
+      const r = random() * 2;
+      particles.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, vx: Math.cos(a) * range(random, minSpeed, speed), vy: Math.sin(a) * range(random, minSpeed, speed), life: range(random, 0.3, lifeMax), max: lifeMax, color, size: range(random, 2, 5) });
     }
   }
   // Armor absorbs damage first, then health. Returns the health lost.
@@ -125,9 +130,11 @@ export function createWorld(random) {
   }
 
   // ---- spawns ----
+  // v6.4 density: 34 moving + 14 parked cars (was 26 + 10) — the streets
+  // near the player are kept alive by updateDensity() below.
   function spawnTraffic() {
     cars.length = 0;
-    for (let i = 0; i < 26; i += 1) {
+    for (let i = 0; i < 34; i += 1) {
       const vertical = random() < 0.5;
       const road = vertical ? pick(random, ROADS_V) : pick(random, ROADS_H);
       cars.push({
@@ -138,7 +145,7 @@ export function createWorld(random) {
         traffic: true, cop: false, parked: false, vertical, road, honk: range(random, 0, 5),
       });
     }
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 14; i += 1) {
       const road = pick(random, ROADS_V);
       cars.push({
         id: 100 + i, x: road, y: range(random, 400, WORLD.height - 200), angle: Math.PI / 2,
@@ -146,13 +153,22 @@ export function createWorld(random) {
       });
     }
   }
+  // v6.4 density: 60 peds (was 42) + 6 beachgoers on the sand so the beach
+  // is alive, not an empty postcard.
   function spawnPeds() {
     peds.length = 0;
-    for (let i = 0; i < 42; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
       peds.push({
         x: range(random, 300, WORLD.width - 100), y: range(random, 100, WORLD.height - 100),
         angle: range(random, 0, Math.PI * 2), speed: range(random, 30, 65), color: pick(random, PED_COLORS),
         name: pick(random, NAMES), alive: true, flee: 0, change: range(random, 1, 4), health: 30,
+      });
+    }
+    for (let i = 0; i < 6; i += 1) {
+      peds.push({
+        x: range(random, 60, 280), y: range(random, 150, WORLD.height - 150),
+        angle: range(random, 0, Math.PI * 2), speed: range(random, 20, 45), color: pick(random, PED_COLORS),
+        name: pick(random, NAMES), alive: true, flee: 0, change: range(random, 1, 4), health: 30, beach: true,
       });
     }
   }
@@ -190,7 +206,7 @@ export function createWorld(random) {
   }
 
   function reset() {
-    player.x = 320; player.y = 1280; player.angle = 0; player.health = PLAYER.health; player.armor = 0; player.ammo = 30;
+    player.x = 320; player.y = 1024; player.angle = 0; player.health = PLAYER.health; player.armor = 0; player.ammo = 30;
     player.inCar = false; player.carId = -1; player.invuln = 0; player.speed = 0;
     bullets.length = 0; particles.length = 0; cops.length = 0;
     state.money = 0; state.respect = 0; state.wanted = 0; state.wantedTimer = 0; state.crimeTimer = 99;
@@ -198,6 +214,7 @@ export function createWorld(random) {
     state.shotsFired = 0; state.carsStolen = 0; state.pedsHit = 0;
     state.heli = null; state.hiddenFound = 0;
     state.missionsDone = 0; state.collected = 0; state.district = 'Beach'; state.districtTimer = 0;
+    nextCopId = 900;
     state.drivebyAt = -1;
     weather.reset();
     phone.reset();
@@ -250,7 +267,10 @@ export function createWorld(random) {
     }
     player.shootCd = 0.22; player.ammo -= 1; state.shotsFired += 1;
     bullets.push({ x: player.x + Math.cos(aimAngle) * 20, y: player.y + Math.sin(aimAngle) * 20, vx: Math.cos(aimAngle) * 950, vy: Math.sin(aimAngle) * 950, life: 0.7 });
-    burst(player.x + Math.cos(aimAngle) * 26, player.y + Math.sin(aimAngle) * 26, '#ffd76a', 4, 160);
+    // Muzzle flash: few, fast, short-lived. The old 4 slow particles
+    // (speed 20-160, life 0.8) hovered at the gun and overlapped into a
+    // flat pale panel in the play/heist shots.
+    burst(player.x + Math.cos(aimAngle) * 26, player.y + Math.sin(aimAngle) * 26, '#ffd76a', 3, 260, 120, 0.35);
     return EVENT_SHOT;
   }
 
@@ -282,14 +302,26 @@ export function createWorld(random) {
         car.speed *= -0.25; car.x = hit.x; car.y = hit.y;
       } else { car.x = nx; car.y = ny; }
       car.x = clamp(car.x, 150, WORLD.width - 20); car.y = clamp(car.y, 60, WORLD.height - 20);
-      // Ram traffic cars and peds.
+      // Ram traffic cars (and gang cars — ramming a Viper is a legit way to
+      // torch one for Neon Reign) and peds. The speed cut is gated by
+      // hitCd (once per 0.5 s): the old code cut 15% EVERY frame while in
+      // contact, so dense traffic glued the car to a crawl.
       for (const other of cars) {
         if (other === car || other.cop) continue;
         if (dist(car.x, car.y, other.x, other.y) < 52) {
           other.traffic = false; other.speed = 0;
           other.x += (other.x - car.x) * 0.12; other.y += (other.y - car.y) * 0.12;
-          car.speed *= 0.85;
-          if (car.hitCd <= 0) { car.health -= 4; other.health -= 8; car.hitCd = 0.5; burst(other.x, other.y, '#ffb142', 5, 180); }
+          if (car.hitCd <= 0) { car.speed *= 0.85; car.health -= 4; other.health -= 8; car.hitCd = 0.5; burst(other.x, other.y, '#ffb142', 5, 180); }
+        }
+      }
+      for (const g of [...gangCars]) {
+        if (dist(car.x, car.y, g.x, g.y) < 52) {
+          g.x += (g.x - car.x) * 0.12; g.y += (g.y - car.y) * 0.12;
+          if (car.hitCd <= 0) {
+            car.speed *= 0.85; car.health -= 4; g.health -= 10; car.hitCd = 0.5;
+            burst(g.x, g.y, '#c084fc', 5, 180);
+            if (g.health <= 0) gang.destroyCar(state, g, { burst, onGangKill: () => phone.onCarDestroyed(state) });
+          }
         }
       }
       for (const p of peds) {
@@ -319,9 +351,70 @@ export function createWorld(random) {
   }
 
   // ---- traffic, peds, cops, heli ----
+  // Living streets (v6.4): keep at least 8 moving traffic cars within 450
+  // of the player and 10 peds within 200 — recycle a far one onto a nearby
+  // road / sidewalk instead of leaving the player on an empty road. One
+  // recycle per frame max, never onto the player (min 90 away) and never
+  // on top of another car. Uses the seeded rng, so staged shots stay
+  // deterministic.
+  function placeCarNearPlayer(c) {
+    for (let tries = 0; tries < 6; tries += 1) {
+      const vertical = random() < 0.5;
+      const road = vertical ? pick(random, ROADS_V) : pick(random, ROADS_H);
+      const a = range(random, 0, Math.PI * 2);
+      const r = range(random, 150, 400);
+      const x = clamp(player.x + Math.cos(a) * r, 320, WORLD.width - 100);
+      const y = clamp(player.y + Math.sin(a) * r, 100, WORLD.height - 100);
+      const nx = vertical ? road + (random() < 0.5 ? -18 : 18) : x;
+      const ny = vertical ? y : road + (random() < 0.5 ? -18 : 18);
+      if (dist(nx, ny, player.x, player.y) < 90) continue;
+      if (cars.some((o) => o !== c && dist(nx, ny, o.x, o.y) < 70)) continue;
+      c.x = nx; c.y = ny; c.vertical = vertical; c.road = road;
+      c.angle = vertical ? (random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : (random() < 0.5 ? 0 : Math.PI);
+      c.speed = range(random, 120, 210);
+      return true;
+    }
+    return false;
+  }
+  function placePedNearPlayer(p) {
+    for (let tries = 0; tries < 6; tries += 1) {
+      const a = range(random, 0, Math.PI * 2);
+      const r = range(random, 90, 180);
+      const x = clamp(player.x + Math.cos(a) * r, 150, WORLD.width - 20);
+      const y = clamp(player.y + Math.sin(a) * r, 60, WORLD.height - 20);
+      if (dist(x, y, player.x, player.y) < 40) continue;
+      if (collideBuildings(x, y, 10).hit) continue;
+      p.x = x; p.y = y; p.angle = range(random, 0, Math.PI * 2);
+      return true;
+    }
+    return false;
+  }
+  function updateDensity() {
+    let nearCars = 0;
+    for (const c of cars) if (c.traffic && !c.cop && c.health > 0 && dist(c.x, c.y, player.x, player.y) < 450) nearCars += 1;
+    if (nearCars < 8) {
+      for (const c of cars) {
+        if (c.cop || c.health <= 0 || c.id === player.carId) continue;
+        // Traffic cars, plus abandoned wrecks the player rammed (they lost
+        // traffic=true and would otherwise clog the roads forever).
+        if (!c.traffic && c.parked) continue;
+        if (dist(c.x, c.y, player.x, player.y) > 700 && placeCarNearPlayer(c)) { c.traffic = true; c.parked = false; break; }
+      }
+    }
+    let nearPeds = 0;
+    for (const p of peds) if (p.alive && dist(p.x, p.y, player.x, player.y) < 200) nearPeds += 1;
+    if (nearPeds < 10) {
+      for (const p of peds) {
+        if (!p.alive || p.fare) continue;
+        if (dist(p.x, p.y, player.x, player.y) > 400 && placePedNearPlayer(p)) break;
+      }
+    }
+  }
   function updateTraffic(dt) {
     for (const c of cars) {
       if (!c.traffic || c.cop) continue;
+      // A wrecked traffic car stops dead instead of ghost-driving on.
+      if (c.health <= 0) { c.speed = 0; continue; }
       const stepLen = c.speed * dt;
       if (c.vertical) { c.y += (c.angle > 0 ? 1 : -1) * stepLen; if (c.y < 80) c.y = WORLD.height - 80; if (c.y > WORLD.height - 80) c.y = 80; }
       else { c.x += (Math.cos(c.angle) > 0 ? 1 : -1) * stepLen; if (c.x < 300) c.x = WORLD.width - 80; if (c.x > WORLD.width - 80) c.x = 300; }
@@ -343,7 +436,10 @@ export function createWorld(random) {
       if (p.flee > 0) {
         p.flee -= dt;
         const a = angleTo(player.x, player.y, p.x, p.y);
-        p.x += Math.cos(a) * 150 * dt; p.y += Math.sin(a) * 150 * dt;
+        const nx = p.x + Math.cos(a) * 150 * dt, ny = p.y + Math.sin(a) * 150 * dt;
+        // Fleeing peds stay in the city (the old code let them run into the
+        // sea / off the map with no bounds check).
+        if (!collideBuildings(nx, ny, 10).hit && nx > 150 && nx < WORLD.width - 20 && ny > 60 && ny < WORLD.height - 20) { p.x = nx; p.y = ny; }
       } else {
         if (p.change <= 0) { p.angle = range(random, 0, Math.PI * 2); p.change = range(random, 2, 6); }
         const nx = p.x + Math.cos(p.angle) * p.speed * dt, ny = p.y + Math.sin(p.angle) * p.speed * dt;
@@ -365,6 +461,9 @@ export function createWorld(random) {
     h.y = player.y + Math.sin(h.angle) * HELI.radius;
     h.rotor += HELI.rotorSpeed * dt;
   }
+  // Monotonic cop-car ids: the old `900 + cops.length` reused an id after a
+  // cop car was destroyed, so two cars shared one mesh/identity (B1).
+  let nextCopId = 900;
   function updateCops(dt) {
     const wantCars = state.wanted >= 2 ? Math.min(3, state.wanted) : state.wanted >= 1 ? 1 : 0;
     const wantFoot = state.wanted >= 1 ? Math.min(4, state.wanted + 1) : 0;
@@ -372,7 +471,8 @@ export function createWorld(random) {
     let carCops = cops.filter((c) => c.inCar).length;
     while (carCops < wantCars) {
       const road = pick(random, ROADS_V);
-      const car = { id: 900 + cops.length, x: clamp(player.x + range(random, -500, 500), 320, WORLD.width - 100), y: clamp(player.y + range(random, -400, 400), 100, WORLD.height - 100), angle: 0, speed: 0, health: 120, color: '#2f6fd0', traffic: false, cop: true, parked: false, vertical: false, road, honk: 0 };
+      const car = { id: nextCopId, x: clamp(player.x + range(random, -500, 500), 320, WORLD.width - 100), y: clamp(player.y + range(random, -400, 400), 100, WORLD.height - 100), angle: 0, speed: 0, health: 120, color: '#2f6fd0', traffic: false, cop: true, parked: false, vertical: false, road, honk: 0 };
+      nextCopId += 1;
       car.y = pick(random, ROADS_H); car.x = clamp(player.x + (random() < 0.5 ? -420 : 420), 320, WORLD.width - 100);
       cars.push(car); cops.push({ x: car.x, y: car.y, inCar: true, car, health: 100, dead: false, arrestT: 0 });
       carCops += 1;
@@ -389,7 +489,10 @@ export function createWorld(random) {
         const car = cop.car;
         const target = angleTo(car.x, car.y, player.x, player.y);
         car.angle += clamp(normAngle(target - car.angle), -2.4 * dt, 2.4 * dt);
-        car.speed = clamp(car.speed + 380 * dt, 0, 480 + state.wanted * 25);
+        // v6.4: cop cars slow down with the player car (was 480 + 25/star,
+        // faster than the player's old 560 and far faster than the new 448)
+        // — 380 at 1 star, 460 at 5 stars, so escape is possible but tense.
+        car.speed = clamp(car.speed + 380 * dt, 0, 360 + state.wanted * 20);
         const nx = car.x + Math.cos(car.angle) * car.speed * dt, ny = car.y + Math.sin(car.angle) * car.speed * dt;
         const hit = collideBuildings(nx, ny, 26);
         if (hit.hit) { car.speed *= 0.4; car.angle += 0.6; } else { car.x = nx; car.y = ny; }
@@ -410,7 +513,7 @@ export function createWorld(random) {
         if (dist(cop.x, cop.y, player.x, player.y) < 30 && !player.inCar && player.invuln <= 0) {
           hurtPlayer(26 * dt); player.invuln = 0.4; cop.arrestT += dt;
           if (cop.arrestT > 1.4) { state.over = 'busted'; state.overReason = 'Busted! The Vice Coast PD caught you.'; }
-        } else if (dist(cop.x, cop.y, player.x, player.y) > 60) cop.arrestT = 0;
+        } else if (dist(cop.x, cop.y, player.x, player.y) >= 30) cop.arrestT = 0; // was >60: the 30-60 band froze the timer forever (B13)
       }
     }
     // A cop car shot to pieces explodes: it counts for the Vigilante phone job.
@@ -464,7 +567,7 @@ export function createWorld(random) {
           if (dist(b.x, b.y, c.x, c.y) < 30) { c.health -= 25; burst(b.x, b.y, '#ffb142', 5, 160); if (c.health <= 0) burst(c.x, c.y, '#ff5722', 16, 260); dead = true; break; }
         }
         if (!dead) for (const g of gangCars) {
-          if (dist(b.x, b.y, g.x, g.y) < 30) {
+          if (dist(b.x, b.y, g.x, g.y) < 38) {
             g.health -= 25; burst(b.x, b.y, '#c084fc', 6, 180);
             if (g.health <= 0) gang.destroyCar(state, g, { burst, onGangKill: () => phone.onCarDestroyed(state) });
             dead = true; break;
@@ -579,6 +682,7 @@ export function createWorld(random) {
     state.crimeTimer += dt;
     updateTraffic(dt);
     updatePeds(dt);
+    updateDensity(dt);
     taxi.update(dt, state);
     shop.update(state);
     for (let i = particles.length - 1; i >= 0; i -= 1) {
@@ -588,7 +692,7 @@ export function createWorld(random) {
     if (harmless) {
       // Title backdrop: the city lives, nothing can hurt the player.
       state.camera.x = clamp(700 + Math.sin(state.elapsed * 0.05) * 500 - VIEW.width / 2, 0, WORLD.width - VIEW.width);
-      state.camera.y = clamp(1280 - VIEW.height / 2, 0, WORLD.height - VIEW.height);
+      state.camera.y = clamp(1024 - VIEW.height / 2, 0, WORLD.height - VIEW.height);
       return 0;
     }
     if (state.over) return EVENT_OVER;
@@ -608,8 +712,8 @@ export function createWorld(random) {
     // District banner: show the district name for 3 s when it changes.
     const d = districtAt(player.x, player.y);
     if (d.name !== state.district) { state.district = d.name; state.districtTimer = 3; }
-    // Wanted decay: hidden (no cop within 450) and no recent crime.
-    const copNear = cops.some((cop) => !cop.dead && dist(cop.x, cop.y, player.x, player.y) < 450);
+    // Wanted decay: hidden (no cop within 380) and no recent crime.
+    const copNear = cops.some((cop) => !cop.dead && dist(cop.x, cop.y, player.x, player.y) < 380);
     if (state.wanted > 0 && !copNear && state.crimeTimer > 4) {
       state.wantedTimer += dt;
       if (state.wantedTimer >= WANTED_DECAY) { state.wanted -= 1; state.wantedTimer = 0; state.message = state.wanted === 0 ? 'Heat is off. You are clean.' : `Wanted down to ${state.wanted} stars.`; state.messageTimer = 3; }
@@ -628,7 +732,7 @@ export function createWorld(random) {
     state, reset, step, addWanted, enterCar, shoot, startMission, completeMission, continueSave, nearestCar,
     weather, gang, shop, phone,
     // Staging helpers used by shots.js / tests: real code paths, not shortcuts.
-    debugWin() { state.money = 9650; state.missionsDone = 10; state.missionIndex = 10; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
-    debugChase() { player.x = 2624; player.y = 960; addWanted(3, true); },
+    debugWin() { state.money = 9850; state.missionsDone = 10; state.missionIndex = 10; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
+    debugChase() { player.x = 2624; player.y = 768; addWanted(3, true); },
   };
 }

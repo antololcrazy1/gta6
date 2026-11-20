@@ -7,15 +7,15 @@ import { pick } from './random.js';
 
 // 9 fixed road intersections spread across the city (ROADS_V x ROADS_H).
 const DESTINATIONS = [
-  { x: 320, y: 320, label: 'Northwest corner' },
-  { x: 3280, y: 320, label: 'Northeast corner' },
-  { x: 320, y: 2280, label: 'Southwest corner' },
-  { x: 3280, y: 2280, label: 'Southeast corner' },
-  { x: 1472, y: 960, label: 'Palm Row' },
-  { x: 2240, y: 1600, label: 'Midtown' },
-  { x: 1088, y: 1920, label: 'Arcade district' },
-  { x: 2624, y: 640, label: 'Neon Hotel' },
-  { x: 704, y: 960, label: 'Palm Row west' },
+  { x: 320, y: 256, label: 'Northwest corner' },
+  { x: 3280, y: 256, label: 'Northeast corner' },
+  { x: 320, y: 1824, label: 'Southwest corner' },
+  { x: 3280, y: 1824, label: 'Southeast corner' },
+  { x: 1472, y: 768, label: 'Palm Row' },
+  { x: 2240, y: 1280, label: 'Midtown' },
+  { x: 1088, y: 1536, label: 'Arcade district' },
+  { x: 2624, y: 512, label: 'Neon Hotel' },
+  { x: 704, y: 768, label: 'Palm Row west' },
 ];
 const PAYS = [40, 50, 60, 80];
 const PICKUP_DIST = 70;
@@ -27,7 +27,7 @@ function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
 export function createTaxi(random) {
   const rnd = random || Math.random;
   function reset(state) {
-    state.taxi = { waiting: null, active: null, cooldown: 12 };
+    state.taxi = { waiting: null, active: null, cooldown: 12, waitTimer: 0 };
   }
   function update(dt, state) {
     const taxi = state.taxi;
@@ -41,6 +41,14 @@ export function createTaxi(random) {
         // The waiting fare got run over before pickup.
         ped.fare = false; taxi.waiting = null; taxi.cooldown = 10;
         state.message = 'Your fare got run over. Ouch.'; state.messageTimer = 3;
+        return;
+      }
+      // A waiting fare gives up after 30 s — the old code left them waving
+      // forever and blocked every new fare (B8).
+      taxi.waitTimer -= dt;
+      if (taxi.waitTimer <= 0) {
+        ped.fare = false; taxi.waiting = null; taxi.cooldown = 8;
+        state.message = 'The customer gave up waiting for a cab.'; state.messageTimer = 3;
         return;
       }
       if (player.inCar) {
@@ -85,6 +93,7 @@ export function createTaxi(random) {
     const ped = pick(rnd, living);
     ped.fare = true;
     taxi.waiting = ped;
+    taxi.waitTimer = 30;
     state.message = 'A customer is waving for a taxi!'; state.messageTimer = 3;
   }
   return { reset, update };

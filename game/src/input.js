@@ -52,6 +52,27 @@ export function createInput(canvas) {
   // Driving-mode buttons (toggled by setInCar): GAS/BRK only make sense in
   // a car, SHOOT only on foot. Kept here so setInCar can flip them.
   let gasBtn = null, brakeBtn = null, shootBtn = null;
+  // v6.4: a USE button (opens the shop when near it — the shop had no touch
+  // equivalent for the E key) and a PAUSE button (pause had no touch
+  // equivalent for Esc). Positions depend on orientation: portrait has
+  // vertical room for a stack; short landscape puts them in a fourth
+  // column clear of the dialog, the money panel and the minimap.
+  let useBtn = null, pauseBtn = null;
+  function layoutTouchButtons() {
+    if (!useBtn || !pauseBtn) return;
+    const shortLandscape = window.innerHeight <= 500 && window.innerWidth > window.innerHeight;
+    if (shortLandscape) {
+      useBtn.style.right = '272px'; useBtn.style.bottom = '120px';
+      pauseBtn.style.right = '272px'; pauseBtn.style.bottom = '204px';
+    } else {
+      useBtn.style.right = '24px'; useBtn.style.bottom = '288px';
+      pauseBtn.style.right = '188px'; pauseBtn.style.bottom = '204px';
+    }
+  }
+  function setUseVisible(v) {
+    if (!useBtn) return;
+    useBtn.style.display = v ? 'flex' : 'none';
+  }
   function setInCar(inCar) {
     if (!gasBtn) return;
     gasBtn.style.display = inCar ? 'flex' : 'none';
@@ -72,6 +93,7 @@ export function createInput(canvas) {
     touch.gas = false; touch.brake = false; touch.shooting = false;
     mouse.down = false; mouse.aiming = false;
     if (knobEl) { knobEl.style.left = '40px'; knobEl.style.top = '40px'; }
+    layoutTouchButtons();
   }
 
   window.addEventListener('keydown', (event) => {
@@ -153,16 +175,22 @@ export function createInput(canvas) {
     const shoot = makeButton('SHOOT', 24, 204, () => { touch.shooting = true; queue(ACTION_SHOOT); }, () => { touch.shooting = false; });
     const radio = makeButton('RADIO', 188, 36, () => queue(ACTION_RADIO));
     const phone = makeButton('PHONE', 188, 120, () => queue(ACTION_PHONE));
+    const use = makeButton('USE', 24, 288, () => queue(ACTION_INTERACT));
+    const pause = makeButton('PAUSE', 188, 204, () => queue(ACTION_PAUSE));
     gasBtn = gas; brakeBtn = brake; shootBtn = shoot;
+    useBtn = use; pauseBtn = pause;
+    // USE only shows near the shop (main loop toggles it); PAUSE is always on.
+    use.style.display = 'none';
     // On foot by default: GAS/BRK hidden until the player enters a car.
     setInCar(false);
-    for (const b of [gas, brake, enter, shoot, radio, phone]) root.appendChild(b);
+    layoutTouchButtons();
+    for (const b of [gas, brake, enter, shoot, radio, phone, use, pause]) root.appendChild(b);
     document.body.appendChild(root);
     touch.elements = root;
   }
 
   return {
-    held, mouse, touch, queue, releaseAll, setInCar,
+    held, mouse, touch, queue, releaseAll, setInCar, setUseVisible,
     move() {
       // Keyboard + GAS/BRK give the base vector. A live joystick steers
       // (x) and, when no pedal is held, also throttles (y) — but GAS/BRK

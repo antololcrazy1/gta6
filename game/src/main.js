@@ -74,6 +74,7 @@ function runGame() {
   let best = readNum(BEST_KEY);
   let missionsBest = readNum(MISSIONS_KEY);
   let accumulator = 0; let last = performance.now(); let time = 0;
+  let lastAutosave = 0;
   let prevWanted = 0;
   let prevDriveby = -1;
   let lastInCar = false;
@@ -87,6 +88,21 @@ function runGame() {
     onContinue: () => continueGame(),
     onBriefStart: () => { if (screen === 'brief') { screen = 'play'; announce('Playing. Follow the gold marker.'); } },
     onResume: () => { if (screen === 'paused' || screen === 'win') { screen = 'play'; announce('Playing.'); } },
+    // Tappable shop / phone rows (touch): same code paths as the keys.
+    onShopBuy: (item) => { const r = world.shop.buy(world.state, item); announce(r.msg); },
+    onShopClose: () => { world.shop.toggle(world.state); announce('Shop closed.'); },
+    onPhoneJob: (jobId) => {
+      const r = world.phone.start(world.state, jobId);
+      announce(r.ok ? `${jobId} job started.` : r.msg);
+      // A job picked by tap drops straight back into the game — no extra
+      // resume tap needed (the keyboard flow keeps the old P-to-resume).
+      if (r.ok && screen === 'paused') screen = 'play';
+    },
+    onPhoneClose: () => {
+      if (world.state.phone.open) world.phone.toggle();
+      if (screen === 'paused') screen = 'play';
+      announce('Playing.');
+    },
   });
 
   function announce(m) { status.textContent = m; }
@@ -142,12 +158,17 @@ function runGame() {
       if (screen === 'play' && st.shop.near) { const open = world.shop.toggle(st); announce(open ? 'Sunset Arms & Paint — 1 armor, 2 ammo, 3 paint.' : 'Shop closed.'); }
     }
     if (actions & ACTION_PHONE) {
-      if (screen === 'play') { world.phone.toggle(); screen = 'paused'; announce('Phone open. 1 Courier, 2 Vigilante, 3 Racer.'); return; }
-      if (screen === 'paused') {
-        if (st.phone.open) { world.phone.toggle(); screen = 'play'; announce('Playing.'); }
-        else { screen = 'play'; announce('Playing.'); }
+      // v6.4: the phone no longer pauses the screen — the old code set
+      // screen='paused', and the pause screen (z-index 20) covered the
+      // phone panel (z-index 10), so the job rows were visible but
+      // untappable on touch. The world freezes while the panel is open
+      // (see step()), exactly like the shop.
+      if (screen === 'play') {
+        const open = world.phone.toggle();
+        announce(open ? 'Phone open. 1 Courier, 2 Vigilante, 3 Racer.' : 'Playing.');
         return;
       }
+      if (screen === 'paused') { screen = 'play'; announce('Playing.'); return; }
     }
     // A canvas tap / click counts as confirm on every non-play screen, so a
     // tap on the title or the briefing always works — it can never leak into
@@ -159,7 +180,10 @@ function runGame() {
       if (actions & (ACTION_CONFIRM | ACTION_SHOOT)) { startGame(); pendingShoot = false; pendingEnter = false; }
       return;
     }
-    if (actions & ACTION_PAUSE && screen === 'play') { screen = 'paused'; announce('Paused.'); return; }
+    if (actions & ACTION_PAUSE && screen === 'play') {
+      if (st.phone.open) world.phone.toggle(); // never pause with the panel open behind the pause screen
+      screen = 'paused'; try { saveGame(world.state); } catch { /* ignore */ } announce('Paused.'); return;
+    }
     if (actions & ACTION_PAUSE && screen === 'paused') {
       if (st.phone.open) { world.phone.toggle(); announce('Phone closed. Still paused.'); }
       else { screen = 'play'; announce('Playing.'); }
@@ -180,7 +204,10 @@ function runGame() {
     time += STEP;
     if (screen === 'title') { world.step(STEP, { move: { x: 0, y: 0 } }, true); return; }
     if (screen !== 'play') return;
-    if (world.state.shop.open) return;
+    // The world freezes while the shop or the phone panel is open (the
+    // shop did this already; the phone used to pause the whole screen,
+    // which covered its own panel on touch).
+    if (world.state.shop.open || world.state.phone.open) return;
     const move = input.move();
     const st = world.state;
     aiming = (!st.player.inCar) && (input.mouse.aiming || input.touch.shooting);
@@ -231,6 +258,15 @@ function runGame() {
       saveMission: saveData ? (saveData.missionsDone || 0) + 1 : 1,
       saveMoney: saveData ? saveData.money : 0,
     });
+    // USE button: only in play, near the shop, while it is closed.
+    input.setUseVisible(screen === 'play' && world.state.shop.near && !world.state.shop.open);
+    // Autosave (v6.4): the old code saved only on mission completion, so
+    // quitting mid-mission lost everything since the last one. Save every
+    // 30 s of play; pausing / hiding also saves (see below).
+    if (screen === 'play' && time - lastAutosave > 30) {
+      lastAutosave = time;
+      try { saveGame(world.state); } catch { /* ignore */ }
+    }
   }
 
   // Rotation / resize: release stuck input, resize the WebGL canvas, keep
@@ -244,7 +280,12 @@ function runGame() {
   if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === 'play') { screen = 'paused'; announce('Paused.'); }
+    if (document.hidden && screen === 'play') {
+      if (world.state.phone.open) world.phone.toggle();
+      screen = 'paused';
+      try { saveGame(world.state); } catch { /* ignore */ }
+      announce('Paused.');
+    }
   });
 
   window.__game = {

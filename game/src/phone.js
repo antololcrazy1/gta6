@@ -13,17 +13,17 @@ export const PHONE_JOBS = [
 ];
 
 const COURIER_DESTS = [
-  { x: 320, y: 320, label: 'Northwest corner' },
-  { x: 3280, y: 320, label: 'Northeast corner' },
-  { x: 320, y: 2280, label: 'Southwest corner' },
-  { x: 3280, y: 2280, label: 'Southeast corner' },
-  { x: 1472, y: 960, label: 'Palm Row' },
-  { x: 2240, y: 1600, label: 'Midtown' },
+  { x: 320, y: 256, label: 'Northwest corner' },
+  { x: 3280, y: 256, label: 'Northeast corner' },
+  { x: 320, y: 1824, label: 'Southwest corner' },
+  { x: 3280, y: 1824, label: 'Southeast corner' },
+  { x: 1472, y: 768, label: 'Palm Row' },
+  { x: 2240, y: 1280, label: 'Midtown' },
 ];
 const RACER_POINTS = [
-  { x: 320, y: 320 },
-  { x: 3280, y: 1280 },
-  { x: 704, y: 2240 },
+  { x: 320, y: 256 },
+  { x: 3280, y: 1024 },
+  { x: 704, y: 1792 },
 ];
 
 function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
@@ -37,10 +37,15 @@ export function createPhone(random) {
     if (!def) return { ok: false, msg: 'No such job.' };
     let job;
     if (jobId === 'courier') {
-      const dest = pick(rnd, COURIER_DESTS);
+      // Never hand the player a destination they are already standing on
+      // (the old code paid $80 for standing still — B7).
+      const far = COURIER_DESTS.filter((d) => dist(state.player.x, state.player.y, d.x, d.y) >= 400);
+      const dest = pick(rnd, far.length > 0 ? far : COURIER_DESTS);
       job = { type: 'courier', pay: 80, timer: 60, target: { ...dest }, label: `Courier — deliver to ${dest.label}` };
     } else if (jobId === 'vigilante') {
-      job = { type: 'vigilante', pay: 120, timer: 0, need: 2, done: 0, target: null, label: 'Vigilante — take out 2 wanted cars' };
+      // v6.4: a 120 s clock — the old timer:0 meant the job could never fail
+      // and blocked the phone forever if the player avoided all cops (B6).
+      job = { type: 'vigilante', pay: 120, timer: 120, need: 2, done: 0, target: null, label: 'Vigilante — take out 2 wanted cars' };
     } else {
       job = { type: 'racer', pay: 150, timer: 45, stage: 0, target: { ...RACER_POINTS[0] }, label: 'Racer — checkpoint 1/3' };
     }

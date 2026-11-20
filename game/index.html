@@ -32,9 +32,9 @@
   .vc-stars { font-size: 22px; letter-spacing: 2px; }
   .vc-stars span { color: rgba(255,255,255,.25); }
   .vc-stars span.lit { color: #ffc93c; }
-  .vc-status { font-size: 12px; font-weight: 700; color: #7dff9a; }
+  .vc-status { font-size: 12px; font-weight: 700; color: #7dff9a; margin-top: 6px; }
   .vc-wanted { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 30px; font-weight: 900; letter-spacing: 3px; color: #ffc93c; text-shadow: 0 2px 0 rgba(0,0,0,.6), 0 0 18px rgba(255,180,40,.55); display: none; }
-  .vc-right { position: absolute; top: 118px; right: 12px; width: 190px; }
+  .vc-right { position: absolute; top: 134px; right: 12px; width: 190px; }
   .vc-weapon { display: flex; gap: 6px; align-items: center; background: rgba(12,10,24,.6); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 3px 7px; margin-bottom: 3px; font-size: 12px; opacity: .55; }
   .vc-weapon.on { opacity: 1; border: 1px solid #ffc93c; }
   .vc-weapon svg { width: 28px; height: 14px; flex: none; fill: #fff; }
@@ -78,6 +78,11 @@
   @media (orientation: portrait) {
     body.vc-touch .vc-bottom-left { bottom: 172px; }
     body.vc-touch .vc-message { top: 150px; }
+    /* The crew dialogue was hidden on phones entirely — show it compact
+    at the top (below the message toast) so phone players get the story. */
+    body.vc-touch .vc-dialog { display: flex; top: 196px; bottom: auto; width: 300px; max-width: 62vw; padding: 7px 10px; }
+    body.vc-touch .vc-portrait { width: 34px; height: 34px; font-size: 17px; }
+    body.vc-touch .vc-dialog-line { font-size: 12px; }
   }
   @media (orientation: landscape) and (max-height: 500px) {
     body.vc-touch .vc-bottom-left { bottom: 128px; }
@@ -89,6 +94,12 @@
   .vc-shop b, .vc-phone b { display: block; color: #ffc93c; font-size: 16px; margin-bottom: 6px; }
   .vc-shop span, .vc-phone span { display: block; padding: 2px 0; }
   .vc-shop i, .vc-phone i { display: block; color: #ffd9a0; font-size: 12px; margin-top: 6px; }
+  /* Tappable panel rows (touch): 44px-ish targets with a pressed state. */
+  .vc-shop-row { display: block; padding: 10px; margin: 3px -8px; border-radius: 6px; cursor: pointer; }
+  .vc-shop-row span { display: inline; color: #ffd9a0; font-size: 12px; }
+  .vc-shop-row:active { background: rgba(255,201,60,.25); }
+  .vc-shop-close { color: #ff9f43; text-align: center; font-weight: 700; }
+  .vc-phone-job { color: #7dff9a; font-size: 12px; margin-bottom: 4px; }
   .vc-screens { position: fixed; inset: 0; z-index: 20; pointer-events: none; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
   .vc-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff7e8; background: linear-gradient(180deg, rgba(20,8,32,.55), rgba(20,8,32,.82)); pointer-events: auto; padding: 16px; }
   /* The win screen is a sunset finale: let the beach + sun show through. */

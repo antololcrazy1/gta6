@@ -3,7 +3,8 @@
 // live state object and passes it in, so this file has no browser or drawing.
 // v5 adds three missions after the Sunset Showdown: Harbor Lights (smuggle
 // run), Neon Reign (gang turf) and the Vice Coast Finale (bank heist, 5 stars,
-// escape to the pier). Total story money: $9,650.
+// escape to the pier). Total story money: $9,650 in mission rewards, $9,850
+// with the mission-5 vault bonus.
 import { NIGHT_DROPS } from './config.js';
 import { GANG_TURF } from './gang.js';
 
@@ -21,11 +22,11 @@ export const MISSIONS = [
 ];
 
 // Smuggle crates for Harbor Lights (mission 8): three spots along the docks
-// road at y=2240, collected in order, then the boat at the pier.
+// road at y=1792, collected in order, then the boat at the pier.
 export const HARBOR_CRATES = [
-  { x: 3008, y: 2240 },
-  { x: 3200, y: 2240 },
-  { x: 3392, y: 2240 },
+  { x: 3008, y: 1792 },
+  { x: 3200, y: 1792 },
+  { x: 3392, y: 1792 },
 ];
 
 // Fresh per-run mission fields, spread into the world state by createWorld.

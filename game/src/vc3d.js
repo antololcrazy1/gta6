@@ -1,12 +1,12 @@
 // Vice Coast v6 — Three.js low-poly 3D renderer.
-// The simulation stays in world.js (2D top-down rules, 3600x2600 city); this
+// The simulation stays in world.js (2D top-down rules, 3600x2080 city); this
 // file is only presentation: it turns that state into a GTA-style third-
 // person 3D scene — low chase cam, golden-hour sunset, busy streets, police
 // helicopter with a searchlight, and an animated on-foot character.
 // Scale: 1 world unit = 0.12 scene units, city centred on the origin.
 // Map (x, y) -> (x*S - W/2, 0, y*S - H/2); world angle a -> rotation.y = -a.
 import * as THREE from '../vendor/three.module.js';
-import { WORLD, PALETTE } from './config.js';
+import { WORLD, PALETTE, CAR } from './config.js';
 import { ROADS_V, ROADS_H } from './world.js';
 
 const S = 0.12;
@@ -171,9 +171,11 @@ export function makeCar(color, opts = {}) {
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color: hexColor(color) });
   // Cabin/trim charcoal: v6.2 used near-black #14161c, so the cabin read
-  // as a flat black box from behind (end shot). #262b33 still reads as
-  // tinted glass/trim but shows shape under the fill light.
-  const darkMat = new THREE.MeshLambertMaterial({ color: 0x262b33 });
+  // as a flat black box from behind (end shot). #3a4150 still reads as
+  // tinted glass/trim but shows shape under the fill light. A faint
+  // emissive keeps it from going pure black when backlit into the sunset.
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x3a4150 });
+  const cabinMat = new THREE.MeshLambertMaterial({ color: 0x3a4150, emissive: 0x14181f });
   const body = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.5, 1.78), bodyMat);
   body.position.y = 0.5; body.castShadow = true; g.add(body);
   const nose = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.34, 1.66), bodyMat);
@@ -185,7 +187,7 @@ export function makeCar(color, opts = {}) {
     const skirt = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 0.08), darkMat);
     skirt.position.set(0, 0.2, z); g.add(skirt);
   }
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 1.45), darkMat);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 1.45), cabinMat);
   cabin.position.set(-0.25, 0.98, 0); cabin.castShadow = true; g.add(cabin);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.07, 1.4), bodyMat);
   roof.position.set(-0.25, 1.26, 0); g.add(roof);
@@ -229,16 +231,21 @@ export function makeCar(color, opts = {}) {
     strut.position.set(-1.95, 0.82, 0.55); g.add(strut);
     const strut2 = strut.clone(); strut2.position.z = -0.55; g.add(strut2);
     // Headlight cones: translucent, only visible at sunset/night.
+    // ConeGeometry's apex is at +Y: rotation.z = +PI/2 puts the apex at
+    // the car (near -X) and the wide base forward (+X). The old -PI/2 put
+    // the apex forward and the wide base at the car — the beam was
+    // reversed, same class of bug as the heli spotlight.
     const coneGeo = new THREE.ConeGeometry(0.9, 6, 12, 1, true);
     const coneMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false });
     for (const z of [0.5, -0.5]) {
       const cone = new THREE.Mesh(coneGeo, coneMat);
-      cone.rotation.z = -Math.PI / 2; cone.rotation.y = 0;
+      cone.rotation.z = Math.PI / 2; cone.rotation.y = 0;
       cone.position.set(5.1, 0.5, z); g.add(cone);
     }
     g.userData.headlightCones = true;
   }
   g.userData.barR = barR; g.userData.barB = barB;
+  g.userData.bodyMat = bodyMat; g.userData.color = color;
   return g;
 }
 
@@ -293,10 +300,17 @@ function makeHeli() {
   }
   g.add(rotor);
   // Searchlight: a narrower, brighter cone + a bright pool on the ground.
+  // The cone's apex is at +Y (top), so with NO rotation the apex sits at
+  // the heli and the wide base lands on the ground below. The old code did
+  // rotation.x = PI (apex down) with a 16-unit cone on a heli scaled 2.2x
+  // at height 13: the apex ended up 22 units UNDER the ground and the wide
+  // base sat at the heli — the beam was upside-down, exactly what Hanz saw
+  // ("lampu sorot helikopter juga kebalik"). Cone height 6 x scale 2.2 =
+  // 13.2, i.e. exactly heli height -> base touches the ground.
   const coneMat = new THREE.MeshBasicMaterial({ color: 0xfff8c0, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false });
-  const cone = new THREE.ConeGeometry(3.2, 16, 16, 1, true);
+  const cone = new THREE.ConeGeometry(3.2, 6, 16, 1, true);
   const beam = new THREE.Mesh(cone, coneMat);
-  beam.position.y = -8; beam.rotation.x = Math.PI; g.add(beam);
+  beam.position.y = -3; g.add(beam);
   g.userData.rotor = rotor; g.userData.beam = beam;
   return g;
 }
@@ -334,7 +348,7 @@ export function createRenderer3D(canvas) {
   // Warm fill from the east (behind the chase camera when driving west
   // into the sunset): lifts the shadow side of cars/buildings — the rear
   // of the player car read near-black in the end shot without it.
-  const fill = new THREE.DirectionalLight(0xffd9b0, 0.4);
+  const fill = new THREE.DirectionalLight(0xffd9b0, 0.55);
   fill.position.set(60, 30, 0);
   scene.add(fill); scene.add(fill.target);
   const headSpot = new THREE.SpotLight(0xfff2b0, 0, 60, 0.5, 0.5, 1.2);
@@ -360,9 +374,10 @@ export function createRenderer3D(canvas) {
   skyDome.renderOrder = -1;
   scene.add(skyDome);
 
-  // Sun disc sprite, low on the horizon at golden hour.
+  // Sun disc sprite, low on the horizon at golden hour. Big (170) so it
+  // reads as a setting sun over the ocean from the beach, not a faint glow.
   const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTexture(), transparent: true, depthWrite: false, fog: false }));
-  sunSprite.scale.set(130, 130, 1);
+  sunSprite.scale.set(170, 170, 1);
   scene.add(sunSprite);
 
   // ---- static city ----
@@ -378,8 +393,8 @@ export function createRenderer3D(canvas) {
   sand.rotation.x = -Math.PI / 2; sand.position.set(-CX + 150 * S, 0.02, 0); sand.receiveShadow = true; city.add(sand);
   // District ground washes.
   const districtWash = [
-    { x0: 2240, y0: 0, x1: 3600, y1: 1600, c: 0x5d5470 },
-    { x0: 2624, y0: 1600, x1: 3600, y1: 2600, c: 0x7f7361 },
+    { x0: 2240, y0: 0, x1: 3600, y1: 1280, c: 0x5d5470 },
+    { x0: 2624, y0: 1280, x1: 3600, y1: 2080, c: 0x7f7361 },
   ];
   for (const d of districtWash) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry((d.x1 - d.x0) * S, (d.y1 - d.y0) * S), groundMat(d.c));
@@ -448,11 +463,11 @@ export function createRenderer3D(canvas) {
     const palmSpots = [];
     for (let y = 100; y < WORLD.height; y += 260) palmSpots.push([180, y]);
     for (let y = 200; y < WORLD.height; y += 520) palmSpots.push([330, y]);
-    // Boulevard rows along the main east-west road (y=960), just off the
+    // Boulevard rows along the main east-west road (y=768), just off the
     // asphalt on the sidewalk strip — the palm-lined avenue of the chase.
     for (let x = 480; x < WORLD.width; x += 340) {
-      palmSpots.push([x, 960 - 48]);
-      palmSpots.push([x + 170, 960 + 48]);
+      palmSpots.push([x, 768 - 48]);
+      palmSpots.push([x + 170, 768 + 48]);
     }
     for (const t of st.trees) palmSpots.push([t.x, t.y]);
     for (const [x, y] of palmSpots) {
@@ -473,11 +488,11 @@ export function createRenderer3D(canvas) {
     }
     // Billboards with the city's own names.
     const boards = [
-      { x: 1088, y: 300, lines: ['VICE COAST', 'Kumala Strand • Est. 1986'], bg: '#ff5a3c', fg: '#fff7e8' },
-      { x: 2624, y: 300, lines: ['NEON HOTEL', 'Rooms • Casino • Pool'], bg: '#ff2fb3', fg: '#ffffff' },
-      { x: 1856, y: 300, lines: ['CORAL BANK', 'Your money, our vault'], bg: '#1b6f8e', fg: '#ffd76a' },
-      { x: 3200, y: 300, lines: ['SUNSET 99 FM', 'All hits, all dusk'], bg: '#7b2fbe', fg: '#ffffff' },
-      { x: 704, y: 2280, lines: ['PIER ARCADE', 'Play • Win • Repeat'], bg: '#2ecc71', fg: '#0d1026' },
+      { x: 1088, y: 240, lines: ['VICE COAST', 'Kumala Strand • Est. 1986'], bg: '#ff5a3c', fg: '#fff7e8' },
+      { x: 2624, y: 240, lines: ['NEON HOTEL', 'Rooms • Casino • Pool'], bg: '#ff2fb3', fg: '#ffffff' },
+      { x: 1856, y: 240, lines: ['CORAL BANK', 'Your money, our vault'], bg: '#1b6f8e', fg: '#ffd76a' },
+      { x: 3200, y: 240, lines: ['SUNSET 99 FM', 'All hits, all dusk'], bg: '#7b2fbe', fg: '#ffffff' },
+      { x: 704, y: 1824, lines: ['PIER ARCADE', 'Play • Win • Repeat'], bg: '#2ecc71', fg: '#0d1026' },
     ];
     for (const b of boards) {
       const tex = billboardTexture(b.lines, b.bg, b.fg);
@@ -487,18 +502,75 @@ export function createRenderer3D(canvas) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.6, 6, 0.6), poleMat);
       post.position.set(b.x * S - CX, 3, b.y * S - CZ); city.add(post);
     }
-    // Sunset Pier: wooden deck reaching into the ocean + posts.
+    // Sunset Pier: wooden deck reaching into the ocean + posts, side rails
+    // and warm lamps so it reads as a pier, not a brown slab.
+    const pierBase = to3(210, 1024, 0.3);
     const pier = new THREE.Mesh(new THREE.BoxGeometry(26, 0.5, 5), groundMat(0x9a7a52));
-    pier.position.set(to3(210, 1280, 0.3).x - 8, 0.3, to3(210, 1280).z); city.add(pier);
+    pier.position.set(pierBase.x - 8, 0.3, pierBase.z); city.add(pier);
     for (let i = 0; i < 6; i += 1) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.4, 6), poleMat);
-      post.position.set(to3(210, 1280).x - 18 + i * 4.4, 0, to3(210, 1280).z + 2.4); city.add(post);
+      post.position.set(pierBase.x - 18 + i * 4.4, 0, pierBase.z + 2.4); city.add(post);
     }
-    // Docks containers.
+    for (const dz of [2.4, -2.4]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(26, 0.18, 0.18), poleMat);
+      rail.position.set(pierBase.x - 8, 1.1, pierBase.z + dz); city.add(rail);
+    }
+    for (let i = 0; i < 3; i += 1) {
+      const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 4, 6), poleMat);
+      lampPole.position.set(pierBase.x - 16 + i * 8, 2, pierBase.z - 2.2); city.add(lampPole);
+      const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe9a8 }));
+      lampBulb.position.set(pierBase.x - 16 + i * 8, 4.1, pierBase.z - 2.2); city.add(lampBulb);
+    }
+    // ---- Kumala Strand beach dressing (v6.4): the map edge is a real
+    // beach, not an empty sand strip. Boardwalk along the sand's east edge,
+    // umbrellas + towels + beach balls on the sand, a lifeguard tower by
+    // the pier, and a foam strip where the sea meets the sand. Fixed spots
+    // (no rng) so the static city is identical every run.
+    const boardwalk = new THREE.Mesh(new THREE.PlaneGeometry(22 * S, WORLD.height * S), groundMat(0x9a7a52));
+    boardwalk.rotation.x = -Math.PI / 2;
+    boardwalk.position.set(341 * S - CX, 0.03, 0); boardwalk.receiveShadow = true; city.add(boardwalk);
+    const umbrellaCols = [0xff5a3c, 0xf1c40f, 0x48dbfb, 0xff6b9d];
+    for (let i = 0; i < 7; i += 1) {
+      const [ux, uy] = [[210, 300], [170, 600], [200, 880], [150, 1150], [190, 1400], [170, 1700], [160, 1950]][i];
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 6), poleMat);
+      pole.position.set(ux * S - CX, 1.3, uy * S - CZ); city.add(pole);
+      const top = new THREE.Mesh(new THREE.ConeGeometry(2.2, 1.1, 8), new THREE.MeshLambertMaterial({ color: umbrellaCols[i % umbrellaCols.length] }));
+      top.position.set(ux * S - CX, 3.0, uy * S - CZ); top.castShadow = true; city.add(top);
+    }
+    const towelCols = [0xff6b9d, 0x48dbfb, 0xf1c40f, 0x2ecc71];
+    for (let i = 0; i < 4; i += 1) {
+      const [tx, ty, rot] = [[140, 700, 0.4], [150, 1250, -0.5], [130, 1600, 0.9], [170, 1000, -0.2]][i];
+      const towel = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 1.4), new THREE.MeshBasicMaterial({ color: towelCols[i] }));
+      towel.rotation.x = -Math.PI / 2; towel.rotation.z = rot;
+      towel.position.set(tx * S - CX, 0.06, ty * S - CZ); city.add(towel);
+    }
+    for (const [bx, by, bc] of [[120, 760, 0xff5a3c], [180, 1300, 0x48dbfb], [140, 1800, 0xf1c40f]]) {
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshLambertMaterial({ color: bc }));
+      ball.position.set(bx * S - CX, 0.5, by * S - CZ); ball.castShadow = true; city.add(ball);
+    }
+    // Lifeguard tower by the pier.
+    const tower = new THREE.Group();
+    for (const [lx, lz] of [[-0.9, -0.9], [0.9, -0.9], [-0.9, 0.9], [0.9, 0.9]]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 2.4, 6), groundMat(0xe8ecf0));
+      leg.position.set(lx, 1.2, lz); tower.add(leg);
+    }
+    const platform = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.25, 2.6), groundMat(0xe8ecf0));
+    platform.position.y = 2.5; tower.add(platform);
+    const towerRoof = new THREE.Mesh(new THREE.ConeGeometry(2.0, 1.0, 4), new THREE.MeshLambertMaterial({ color: 0xff5a3c }));
+    towerRoof.position.y = 4.2; towerRoof.rotation.y = Math.PI / 4; tower.add(towerRoof);
+    tower.position.set(200 * S - CX, 0, 900 * S - CZ); city.add(tower);
+    // Foam strip where the sea meets the sand (waterline at world x ~ -25).
+    const foam = new THREE.Mesh(new THREE.PlaneGeometry(8 * S, WORLD.height * S), new THREE.MeshBasicMaterial({ color: 0xf4fbff, transparent: true, opacity: 0.65 }));
+    foam.rotation.x = -Math.PI / 2;
+    foam.position.set(-21 * S - CX, 0.04, 0); city.add(foam);
+    // Docks containers: 2 rows x 5, spaced so the 4.5-unit boxes (37 world
+    // units wide) do not overlap — the old 6-unit x-spacing stacked five
+    // boxes into one solid block (B10).
     const contColors = [0xe74c3c, 0x3498db, 0xf1c40f, 0x2ecc71, 0xe67e22];
     for (let i = 0; i < 10; i += 1) {
       const c = new THREE.Mesh(new THREE.BoxGeometry(4.5, 2.2, 2.2), groundMat(contColors[i % contColors.length]));
-      c.position.set(to3(3200 + (i % 5) * 6, 2380 + Math.floor(i / 5) * 5).x, 1.1, to3(3200, 2380).z + (Math.floor(i / 5) * 5 - 2.5) * S);
+      const cx = 3200 + (i % 5) * 40, cy = 1904 + Math.floor(i / 5) * 20;
+      c.position.set(cx * S - CX, 1.1, cy * S - CZ);
       c.castShadow = true; city.add(c);
     }
   }
@@ -509,24 +581,47 @@ export function createRenderer3D(canvas) {
   const playerMesh = makePerson(0xff5a3c, 0x2c3e50);
   playerMesh.visible = false; scene.add(playerMesh);
   const heliMesh = makeHeli(); heliMesh.visible = false; scene.add(heliMesh);
-  const heliPool = new THREE.Mesh(new THREE.CircleGeometry(2.8, 20),
+  // Ground pool under the HELI (radius matches the beam's base: 3.2 x 2.2
+  // scale = 7.0). The old pool sat under the PLAYER while the heli orbited
+  // 180 units away, so beam and pool were detached.
+  const heliPool = new THREE.Mesh(new THREE.CircleGeometry(7.0, 20),
     new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.16, depthWrite: false }));
   heliPool.rotation.x = -Math.PI / 2; heliPool.visible = false; scene.add(heliPool);
+  // Surf lines on the ocean + a sunset glitter path on the water: they
+  // follow the player's z so the sea is alive wherever the beach is in
+  // frame. Positions are set every frame in render(); the meshes are cheap.
+  const waveLines = [];
+  for (let i = 0; i < 3; i += 1) {
+    const w = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 100),
+      new THREE.MeshBasicMaterial({ color: 0xf4fbff, transparent: true, opacity: 0.45 }));
+    w.visible = false; scene.add(w); waveLines.push(w);
+  }
+  const sunGlitter = new THREE.Mesh(new THREE.PlaneGeometry(30, 7),
+    new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.3, depthWrite: false }));
+  sunGlitter.rotation.x = -Math.PI / 2; sunGlitter.visible = false; scene.add(sunGlitter);
 
   // Mission beacon: gold light pillar + floating diamond.
   const beacon = new THREE.Group();
   const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.4, 60, 12, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xffc93c, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false }));
+    new THREE.MeshBasicMaterial({ color: 0xffc93c, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false }));
   pillar.position.y = 30; beacon.add(pillar);
   const diamond = new THREE.Mesh(new THREE.OctahedronGeometry(1.6), new THREE.MeshBasicMaterial({ color: 0xffc93c }));
   diamond.position.y = 6; beacon.add(diamond);
   beacon.visible = false; scene.add(beacon);
 
-  // Pickups: small glowing diamonds, gold for hidden packages.
+  // Pickups: small glowing diamonds, gold for hidden packages. Each one
+  // carries a flat ground ring in the same colour, so the floating diamond
+  // reads as a marked pickup spot instead of a stray diamond hovering in
+  // mid-air (the end shot's gold pickup sat 20 units from the lens with
+  // nothing under it). The ring is a child of the diamond mesh, offset
+  // down to the ground; it inherits the spin, which is invisible on a ring.
   const pickupPool = [];
-  const pickupGeo = new THREE.OctahedronGeometry(0.9);
+  const pickupGeo = new THREE.OctahedronGeometry(0.75);
   for (let i = 0; i < 30; i += 1) {
     const m = new THREE.Mesh(pickupGeo, new THREE.MeshBasicMaterial({ color: 0xffc93c }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.7, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffc93c, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = -0.9; m.add(ring); m.userData.ring = ring;
     m.visible = false; scene.add(m); pickupPool.push(m);
   }
 
@@ -537,14 +632,15 @@ export function createRenderer3D(canvas) {
   const pCol = new Float32Array(MAXP * 3);
   pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
   pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
-  const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 1.6, vertexColors: true, transparent: true, opacity: 0.95 }));
+  const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.7, vertexColors: true, transparent: true, opacity: 0.95 }));
   points.frustumCulled = false; scene.add(points);
   const bulletPool = [];
   // Tracers are long thin lines: v6.1's chunky 1.6x0.08 boxes read as white
-  // planks when one passes near the camera.
-  const bulletGeo = new THREE.BoxGeometry(2.4, 0.05, 0.05);
-  const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffd76a });
-  for (let i = 0; i < 24; i += 1) {
+  // planks when one passes near the camera. v6.4: shorter (1.6) and thinner
+  // (0.03) so the play shot's volley does not read as floating planks.
+  const bulletGeo = new THREE.BoxGeometry(1.6, 0.03, 0.03);
+  const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffd76a, transparent: true, opacity: 0.85 });
+  for (let i = 0; i < 48; i += 1) {
     const b = new THREE.Mesh(bulletGeo, bulletMat);
     b.visible = false; scene.add(b); bulletPool.push(b);
   }
@@ -564,18 +660,22 @@ export function createRenderer3D(canvas) {
   // Explosion flash light (reused, cheap).
   const boomLight = new THREE.PointLight(0xff7722, 0, 40, 1.5);
   scene.add(boomLight);
-  // Fireball mesh: the 50 fireball particles are 1.6-unit points, so at
+  // Fireball mesh: the 50 fireball particles are 1.0-unit points, so at
   // 35+ units they read as scattered dots, not a burning wreck. Two
   // unlit spheres (orange shell + yellow core) make the explosion read
   // as a solid glowing ball from the chase cam. Shown only while a big
-  // orange burst is live.
+  // orange burst is live. v6.4's 2.4/1.3 still read as a giant orange
+  // balloon in the heist shot (a 2.4-radius sphere is wider than the car
+  // it burns, and it sat 22 units from the lens at full opacity), so
+  // v6.5: smaller (1.5/0.9), flattened, dimmer, and flickering — it must
+  // read as fire on a wreck, not a bubble.
   const fireballMesh = new THREE.Group();
   const fbOuter = new THREE.Mesh(
-    new THREE.SphereGeometry(3.4, 12, 10),
-    new THREE.MeshBasicMaterial({ color: 0xff5722, transparent: true, opacity: 0.85 }));
+    new THREE.SphereGeometry(1.5, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0xff5722, transparent: true, opacity: 0.6 }));
   const fbInner = new THREE.Mesh(
-    new THREE.SphereGeometry(1.9, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffcc55, transparent: true, opacity: 0.95 }));
+    new THREE.SphereGeometry(0.9, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffcc55, transparent: true, opacity: 0.75 }));
   fireballMesh.add(fbOuter); fireballMesh.add(fbInner);
   fireballMesh.visible = false;
   scene.add(fireballMesh);
@@ -608,8 +708,18 @@ export function createRenderer3D(canvas) {
 
   function carMeshFor(car, isPlayer) {
     let g = carPool.get(car.id);
+    // A car can change role after its mesh was built: a traffic car the
+    // player steals was rendered without spoiler / headlight cones, and a
+    // paint job changes state.color without rebuilding the mesh. Rebuild
+    // when the role flags change; re-tint when only the colour changed.
+    if (g && (g.userData.isPlayer !== isPlayer || g.userData.isCop !== !!car.cop || g.userData.isGang !== !!car.gang)) {
+      scene.remove(g);
+      carPool.delete(car.id);
+      g = null;
+    }
     if (!g) {
       g = makeCar(car.color, { cop: !!car.cop, gang: !!car.gang, player: isPlayer });
+      g.userData.isPlayer = isPlayer; g.userData.isCop = !!car.cop; g.userData.isGang = !!car.gang;
       carPool.set(car.id, g); scene.add(g);
     }
     return g;
@@ -642,6 +752,13 @@ export function createRenderer3D(canvas) {
       g.position.copy(pos);
       g.rotation.y = rotY(c.angle);
       g.visible = true;
+      // Paint job: re-tint the body when the state colour changed — the
+      // old code built the material once, so a bought paint job was
+      // invisible in 3D.
+      if (g.userData.bodyMat && g.userData.color !== c.color) {
+        g.userData.color = c.color;
+        g.userData.bodyMat.color.setHex(hexColor(c.color));
+      }
       if (c.cop && g.userData.barR) {
         const on = Math.floor(time * 6) % 2 === 0;
         g.userData.barR.visible = on; g.userData.barB.visible = !on;
@@ -658,7 +775,7 @@ export function createRenderer3D(canvas) {
       const d = Math.hypot(ped.x - p.x, ped.y - p.y);
       if (d > 180) { const old = pedPool.get(i); if (old) old.visible = false; return; }
       let g = pedPool.get(i);
-      if (!g) { g = makePerson(hexColor(ped.color), 0x333a44); pedPool.set(i, g); scene.add(g); }
+      if (!g) { g = makePerson(hexColor(ped.color), 0x4a5160); pedPool.set(i, g); scene.add(g); }
       g.position.copy(to3(ped.x, ped.y, 0));
       g.rotation.y = rotY(ped.angle);
       g.visible = true;
@@ -697,7 +814,10 @@ export function createRenderer3D(canvas) {
       heliMesh.position.copy(hp);
       heliMesh.rotation.y = rotY(Math.atan2(p.y - heli.y, p.x - heli.x));
       heliMesh.userData.rotor.rotation.y = (heli.rotor || 0);
-      heliPool.position.set(pp.x, 0.1, pp.z);
+      // The pool sits under the HELI (its beam footprint), not under the
+      // player — the old code put it at the player while the heli orbited
+      // 180 units away.
+      heliPool.position.set(hp.x, 0.1, hp.z);
       heliPool.material.opacity = 0.24 + 0.08 * Math.sin(time * 5);
     }
 
@@ -714,10 +834,11 @@ export function createRenderer3D(canvas) {
       if (!pk.active || pi >= pickupPool.length) continue;
       const m = pickupPool[pi++];
       m.visible = true;
-      const pos = to3(pk.x, pk.y, 1.2 + Math.sin((pk.bob || 0) * 2) * 0.3);
+      const pos = to3(pk.x, pk.y, 1.0 + Math.sin((pk.bob || 0) * 2) * 0.2);
       m.position.copy(pos);
       m.rotation.y = time * 2;
       m.material.color.set(pk.kind === 'hidden' ? 0xffc93c : pk.kind === 'health' ? 0x2ecc71 : pk.kind === 'ammo' ? 0x3498db : 0xffffff);
+      if (m.userData.ring) m.userData.ring.material.color.copy(m.material.color);
     }
     for (; pi < pickupPool.length; pi += 1) pickupPool[pi].visible = false;
 
@@ -751,14 +872,24 @@ export function createRenderer3D(canvas) {
     if (fbLive) {
       // Centroid of the fireball particles (they ring the wreck, so the
       // centroid is the wreck itself) — the mesh sits on the burning car.
-      let cx = 0; let cy = 0; let cn = 0;
+      // It shrinks + fades with the burst's remaining life.
+      let cx = 0; let cy = 0; let cn = 0; let fbFrac = 0;
       for (const pt of st.particles) {
-        if ((pt.color === '#ff5722' || pt.color === '#ffcc55') && pt.life > 0) { cx += pt.x; cy += pt.y; cn += 1; }
+        if ((pt.color === '#ff5722' || pt.color === '#ffcc55') && pt.life > 0) {
+          cx += pt.x; cy += pt.y; cn += 1;
+          fbFrac = Math.max(fbFrac, pt.life / (pt.max || 0.8));
+        }
       }
       if (cn > 0) {
         const v = to3(cx / cn, cy / cn, 3);
         if (big) boomLight.position.copy(v);
         fireballMesh.position.set(v.x, 2.2, v.z);
+        // Flattened (fire hugs the wreck, it is not a ball) + flickering,
+        // so it never reads as a static orange balloon.
+        const fbScale = (0.5 + 0.5 * fbFrac) * (1 + 0.12 * Math.sin(time * 29));
+        fireballMesh.scale.set(fbScale, fbScale * 0.7, fbScale);
+        fbOuter.material.opacity = 0.6 * fbFrac;
+        fbInner.material.opacity = 0.75 * fbFrac;
       }
     }
     fireballMesh.visible = fbLive;
@@ -784,8 +915,21 @@ export function createRenderer3D(canvas) {
       rainGeo.attributes.position.needsUpdate = true;
     }
 
+    // ---- surf lines + sunset glitter on the ocean ----
+    // Only near the beach (player.x < 1200): from mid-city they are beyond
+    // the fog anyway. The waves drift with the fixed clock, so staged shots
+    // stay deterministic.
+    const beachNear = p.x < 1200;
+    for (let i = 0; i < waveLines.length; i += 1) {
+      const w = waveLines[i];
+      w.visible = beachNear;
+      if (beachNear) w.position.set((-67 - i * 50) * S - CX + Math.sin(time * 0.5 + i * 2.1) * 1.5, 0.06, pp.z);
+    }
+    sunGlitter.visible = beachNear && phase === 'sunset';
+    if (sunGlitter.visible) sunGlitter.position.set(-150 * S - CX, 0.05, pp.z + 12);
+
     // ---- camera ----
-    const speedF = Math.min(1, Math.abs(p.speed || 0) / 560);
+    const speedF = Math.min(1, Math.abs(p.speed || 0) / CAR.maxSpeed);
     const snap = !!opts.snap;
     function placeCam(wantPos, wantLook, fovTarget, lerpK) {
       if (snap) { camPos.copy(wantPos); camLook.copy(wantLook); fov = fovTarget; return; }

@@ -12,13 +12,14 @@
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .vc-hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff7e8; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
   .vc-top-left { position: absolute; top: 12px; left: 12px; width: 340px; max-width: 46vw; }
-  .vc-mission { background: rgba(12,10,24,.72); border-left: 4px solid #ffc93c; padding: 8px 10px; border-radius: 4px; }
+  .vc-mission { background: rgba(12,10,24,.72); border-left: 4px solid #ffc93c; border: 1px solid rgba(255,255,255,.22); padding: 8px 10px; border-radius: 10px; }
   .vc-mission-title { font-weight: 900; font-size: 15px; letter-spacing: .5px; color: #ffc93c; }
+  .vc-stage { display: inline-block; background: #ffc93c; color: #14101f; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 900; margin-left: 6px; vertical-align: 2px; text-shadow: none; }
   .vc-mission-bar { height: 6px; background: rgba(255,255,255,.18); border-radius: 3px; margin: 5px 0; overflow: hidden; }
   .vc-mission-bar div { height: 100%; background: #ffc93c; width: 10%; }
   .vc-mission-obj { font-size: 13px; font-weight: 600; }
   .vc-mission-next { font-size: 12px; color: #ffd9a0; margin-top: 2px; }
-  .vc-units { margin-top: 8px; background: rgba(12,10,24,.66); border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+  .vc-units { margin-top: 8px; background: rgba(12,10,24,.66); border: 1px solid rgba(255,255,255,.22); border-radius: 10px; padding: 6px 8px; font-size: 12px; }
   .vc-unit { display: flex; gap: 8px; padding: 2px 0; }
   .vc-unit b { color: #ff6b6b; min-width: 64px; }
   .vc-unit span { color: #ffd9a0; min-width: 76px; }
@@ -27,17 +28,19 @@
   .vc-unit-more { color: #ffd9a0; padding-top: 2px; }
   .vc-top-right { position: absolute; top: 12px; right: 12px; text-align: right; }
   .vc-clock { font-size: 20px; font-weight: 800; }
-  .vc-money { font-size: 22px; font-weight: 900; color: #7dff9a; }
+  .vc-money { font-size: 26px; font-weight: 900; color: #7dff9a; }
   .vc-stars { font-size: 22px; letter-spacing: 2px; }
   .vc-stars span { color: rgba(255,255,255,.25); }
   .vc-stars span.lit { color: #ffc93c; }
   .vc-status { font-size: 12px; font-weight: 700; color: #7dff9a; }
+  .vc-wanted { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 30px; font-weight: 900; letter-spacing: 3px; color: #ffc93c; text-shadow: 0 2px 0 rgba(0,0,0,.6), 0 0 18px rgba(255,180,40,.55); display: none; }
   .vc-right { position: absolute; top: 118px; right: 12px; width: 190px; }
-  .vc-weapon { display: flex; gap: 6px; align-items: center; background: rgba(12,10,24,.6); border-radius: 3px; padding: 3px 7px; margin-bottom: 3px; font-size: 12px; opacity: .55; }
+  .vc-weapon { display: flex; gap: 6px; align-items: center; background: rgba(12,10,24,.6); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 3px 7px; margin-bottom: 3px; font-size: 12px; opacity: .55; }
   .vc-weapon.on { opacity: 1; border: 1px solid #ffc93c; }
+  .vc-weapon svg { width: 28px; height: 14px; flex: none; fill: #fff; }
   .vc-weapon b { color: #ffc93c; }
   .vc-weapon i { font-style: normal; margin-left: auto; color: #fff; }
-  .vc-crew-card { display: flex; gap: 7px; align-items: center; background: rgba(12,10,24,.6); border-radius: 3px; padding: 4px 7px; margin-bottom: 3px; font-size: 11px; }
+  .vc-crew-card { display: flex; gap: 7px; align-items: center; background: rgba(12,10,24,.6); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 4px 7px; margin-bottom: 3px; font-size: 11px; }
   .vc-crew-face { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; color: #14101f; text-shadow: none; flex: none; }
   .vc-crew-card b { display: block; color: #ffc93c; font-size: 11px; }
   .vc-crew-card span { color: #ffd9a0; }
@@ -51,7 +54,7 @@
   .vc-bar-track { flex: 1; height: 8px; background: rgba(255,255,255,.2); border-radius: 4px; overflow: hidden; }
   .vc-bar-health { height: 100%; background: #2ecc71; }
   .vc-bar-armor { height: 100%; background: #48dbfb; }
-  .vc-dialog { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; width: 420px; max-width: 52vw; display: flex; gap: 10px; background: rgba(12,10,24,.78); border-radius: 6px; padding: 9px 12px; align-items: center; }
+  .vc-dialog { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; width: 420px; max-width: 52vw; display: flex; gap: 10px; background: rgba(12,10,24,.78); border: 1px solid rgba(255,255,255,.22); border-radius: 10px; padding: 9px 12px; align-items: center; }
   .vc-portrait { width: 44px; height: 44px; border-radius: 50%; background: #ff6b9d; color: #14101f; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 900; text-shadow: none; flex: none; }
   .vc-dialog-name { font-size: 12px; font-weight: 900; color: #ffc93c; }
   .vc-dialog-line { font-size: 13px; }
@@ -88,6 +91,8 @@
   .vc-shop i, .vc-phone i { display: block; color: #ffd9a0; font-size: 12px; margin-top: 6px; }
   .vc-screens { position: fixed; inset: 0; z-index: 20; pointer-events: none; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
   .vc-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff7e8; background: linear-gradient(180deg, rgba(20,8,32,.55), rgba(20,8,32,.82)); pointer-events: auto; padding: 16px; }
+  /* The win screen is a sunset finale: let the beach + sun show through. */
+  #vc-screen-win { background: linear-gradient(180deg, rgba(20,8,32,.30), rgba(20,8,32,.55)); }
   .vc-logo { font-size: 84px; font-weight: 900; letter-spacing: 4px; line-height: .95; text-shadow: 0 4px 0 #ff5a3c, 0 8px 24px rgba(0,0,0,.6); }
   .vc-logo span { color: #ffc93c; }
   .vc-tagline { font-size: 16px; color: #ffd9a0; margin: 10px 0 18px; }

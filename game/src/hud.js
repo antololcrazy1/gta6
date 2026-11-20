@@ -44,7 +44,7 @@ export function createHUD(callbacks) {
   root.innerHTML = `
   <div class="vc-top-left">
     <div class="vc-mission" id="vc-mission">
-      <div class="vc-mission-title" id="vc-mission-title">MISSION 1 · SUNSET TAXI</div>
+      <div class="vc-mission-title"><span id="vc-mission-title-text">MISSION 1 · SUNSET TAXI</span><span class="vc-stage" id="vc-mission-stage"></span></div>
       <div class="vc-mission-bar"><div id="vc-mission-fill"></div></div>
       <div class="vc-mission-obj" id="vc-mission-obj">Pick up Maya</div>
       <div class="vc-mission-next" id="vc-mission-next">NEXT: Drop Maya off</div>
@@ -57,6 +57,7 @@ export function createHUD(callbacks) {
     <div class="vc-stars" id="vc-stars"></div>
     <div class="vc-status" id="vc-status">VCPD · CLEAR</div>
   </div>
+  <div class="vc-wanted" id="vc-wanted"></div>
   <div class="vc-right">
     <div class="vc-weapons" id="vc-weapons"></div>
     <div class="vc-crew" id="vc-crew"></div>
@@ -186,6 +187,16 @@ export function createHUD(callbacks) {
     mctx.fillStyle = '#fff'; mctx.font = 'bold 16px system-ui'; mctx.fillText('N', 172, 22);
   }
 
+  // Tiny inline-SVG weapon silhouettes (no font dependency): the top-10
+  // slots all show an icon, v6.0 showed text only.
+  const WEAPON_ICONS = {
+    FISTS: '<svg viewBox="0 0 32 16"><rect x="6" y="4" width="20" height="10" rx="3"/><rect x="8" y="1" width="4" height="5" rx="1"/><rect x="14" y="1" width="4" height="5" rx="1"/><rect x="20" y="1" width="4" height="5" rx="1"/></svg>',
+    PISTOL: '<svg viewBox="0 0 32 16"><rect x="4" y="3" width="22" height="5" rx="1"/><rect x="8" y="8" width="5" height="7" rx="1"/><rect x="22" y="5" width="5" height="3"/></svg>',
+    SMG: '<svg viewBox="0 0 32 16"><rect x="2" y="4" width="26" height="5" rx="1"/><rect x="12" y="9" width="4" height="6" rx="1"/><rect x="24" y="6" width="6" height="3"/></svg>',
+    '12G': '<svg viewBox="0 0 32 16"><rect x="2" y="5" width="28" height="4" rx="1"/><rect x="14" y="9" width="5" height="4" rx="1"/><rect x="6" y="9" width="4" height="4" rx="1"/></svg>',
+    MAKO: '<svg viewBox="0 0 32 16"><rect x="2" y="5" width="28" height="4" rx="1"/><rect x="12" y="2" width="8" height="3" rx="1"/><rect x="14" y="9" width="4" height="6" rx="1"/><rect x="24" y="7" width="6" height="3"/></svg>',
+  };
+
   function weaponSlots(st) {
     const ammo = st.player.ammo;
     const slots = [
@@ -195,7 +206,7 @@ export function createHUD(callbacks) {
       ['4', '12G', '—', false],
       ['5', 'MAKO', '150', false],
     ];
-    return slots.map(([n, name, am, on]) => `<div class="vc-weapon ${on ? 'on' : ''}"><b>${n}</b><span>${name}</span><i>${am}</i></div>`).join('');
+    return slots.map(([n, name, am, on]) => `<div class="vc-weapon ${on ? 'on' : ''}"><b>${n}</b>${WEAPON_ICONS[name]}<span>${name}</span><i>${am}</i></div>`).join('');
   }
 
   function update(st, screen, opts = {}) {
@@ -204,7 +215,10 @@ export function createHUD(callbacks) {
     const m = MISSIONS[Math.min(st.missionIndex, 9)];
     const stageTotal = st.missionIndex === 1 || st.missionIndex === 5 || st.missionIndex === 7 ? 3 : st.missionIndex === 8 ? 2 : 1;
     const stageDone = Math.min(st.missionStage, stageTotal);
-    $('vc-mission-title').textContent = st.missionIndex >= 10 ? 'FREE ROAM · VICE COAST' : `MISSION ${st.missionIndex + 1} · ${m.name.toUpperCase()}`;
+    $('vc-mission-title-text').textContent = st.missionIndex >= 10 ? 'FREE ROAM · VICE COAST' : `MISSION ${st.missionIndex + 1} · ${m.name.toUpperCase()}`;
+    const stageChip = $('vc-mission-stage');
+    stageChip.textContent = stageTotal > 1 ? `STAGE ${stageDone}/${stageTotal}` : '';
+    stageChip.style.display = stageTotal > 1 ? 'inline-block' : 'none';
     $('vc-mission-fill').style.width = `${st.missionIndex >= 10 ? 100 : ((st.missionIndex + stageDone / (stageTotal + 1)) / 10) * 100}%`;
     $('vc-mission-obj').textContent = st.missionText || '';
     $('vc-mission-next').textContent = st.missionTimer > 0 ? `⏱ ${Math.ceil(st.missionTimer)}s left` : `PACKAGES ${st.hiddenFound}/${st.hiddenTotal} · RESPECT ${st.respect}`;
@@ -224,6 +238,10 @@ export function createHUD(callbacks) {
     $('vc-money').textContent = `$${st.money.toLocaleString('en-US')}`;
     const stars = $('vc-stars');
     stars.innerHTML = Array.from({ length: 5 }, (_, i) => `<span class="${i < st.wanted ? 'lit' : ''}">★</span>`).join('');
+    // Big gold WANTED banner top-centre at 3+ stars, like Golden Hour Kings.
+    const wanted = $('vc-wanted');
+    wanted.textContent = st.wanted >= 3 ? `WANTED ${'★'.repeat(st.wanted)}` : '';
+    wanted.style.display = st.wanted >= 3 ? 'block' : 'none';
     $('vc-status').textContent = st.heli ? 'AIR UNIT DEPLOYED · IN SIGHT' : st.wanted > 0 ? `VCPD · ${st.wanted} STAR${st.wanted > 1 ? 'S' : ''} — LOSE THEM` : 'VCPD · CLEAR';
     $('vc-status').style.color = st.wanted > 0 ? '#ff6b6b' : '#7dff9a';
     $('vc-weapons').innerHTML = weaponSlots(st);

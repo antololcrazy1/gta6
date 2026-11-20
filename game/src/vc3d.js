@@ -16,11 +16,24 @@ export function to3(x, y, h = 0) { return new THREE.Vector3(x * S - CX, h, y * S
 function rotY(a) { return -a; }
 
 // Golden-hour-first lighting per weather phase.
+// Brighter + more saturated than v6.0: the top-10 entries are bright and
+// vivid (blue sky, pastel buildings, light asphalt); v6.0 read dark and muddy
+// because the hemisphere/ambient were too low and ACES darkened the rest.
 const PHASES = {
-  day:    { sky: 0x87b5d6, fog: 0x9fc3dd, sun: 0xfff2cf, sunI: 2.4, hemi: 0xbfd9ee, hemiI: 0.9, amb: 0.25, sunPos: [60, 90, 20], sunSprite: null },
-  sunset: { sky: 0xff7e3d, fog: 0xe86a4a, sun: 0xff9a3c, sunI: 3.2, hemi: 0x8a5a8a, hemiI: 1.3, amb: 0.2, sunPos: [-140, 16, 10], sunSprite: 0xffb347 },
-  night:  { sky: 0x0d1026, fog: 0x141832, sun: 0x8fa8ff, sunI: 0.9, hemi: 0x2a2f55, hemiI: 0.75, amb: 0.12, sunPos: [40, 80, -30], sunSprite: 0xdfe8ff },
-  rain:   { sky: 0x5a5f6e, fog: 0x6a6f7d, sun: 0xcfd6e2, sunI: 1.1, hemi: 0x777d8c, hemiI: 0.7, amb: 0.2, sunPos: [30, 70, 10], sunSprite: null },
+  day:    { sky: 0x87b5d6, fog: 0xbfd9ee, sun: 0xfff2cf, sunI: 2.8, hemi: 0xbfd9ee, hemiI: 1.3, amb: 0.5, sunPos: [60, 90, 20], sunSprite: null },
+  sunset: { sky: 0xff8a4d, fog: 0xe08a5e, sun: 0xff9a3c, sunI: 3.6, hemi: 0x9a6a9a, hemiI: 1.5, amb: 0.45, sunPos: [-140, 16, 10], sunSprite: 0xffb347 },
+  night:  { sky: 0x1c2347, fog: 0x252c50, sun: 0x9fb4ff, sunI: 1.6, hemi: 0x3a4066, hemiI: 1.1, amb: 0.35, sunPos: [40, 80, -30], sunSprite: 0xdfe8ff },
+  rain:   { sky: 0x5a5f6e, fog: 0x767b88, sun: 0xcfd6e2, sunI: 1.5, hemi: 0x8a90a0, hemiI: 1.0, amb: 0.45, sunPos: [30, 70, 10], sunSprite: null },
+};
+
+// Gradient sky dome (canvas texture on a big backside sphere): the top-10
+// skies are gradients (blue + clouds, or purple-pink-orange dusk), never a
+// flat colour. Stops are canvas rows: 0 = zenith, ~0.5 = horizon.
+const SKY_STOPS = {
+  day:    [[0, '#2f6fb2'], [0.42, '#7fb5dd'], [0.52, '#d8ecf7'], [1, '#9db8c4']],
+  sunset: [[0, '#241452'], [0.32, '#8e2f6b'], [0.48, '#ff7e3d'], [0.58, '#ffb347'], [1, '#7a4a3a']],
+  night:  [[0, '#030510'], [0.45, '#1a2140'], [0.58, '#2e2450'], [1, '#14101f']],
+  rain:   [[0, '#2e333b'], [0.45, '#6a7078'], [0.55, '#8f959e'], [1, '#555a60']],
 };
 
 function canvasTexture(w, h, draw) {
@@ -37,10 +50,15 @@ function canvasTexture(w, h, draw) {
 function facadeTexture(base, lit) {
   return canvasTexture(128, 256, (g, w, h) => {
     g.fillStyle = base; g.fillRect(0, 0, w, h);
+    // Sunlit top edge: the top-10 towers read pastel-bright, not flat dark.
+    const grad = g.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, 'rgba(255,255,255,0.22)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, w, h);
     for (let y = 10; y < h - 12; y += 22) {
       for (let x = 10; x < w - 12; x += 18) {
         const on = ((x * 7 + y * 13) % 5) < 3;
-        g.fillStyle = on ? lit : '#20242e';
+        g.fillStyle = on ? lit : '#2a2f3a';
         g.fillRect(x, y, 11, 13);
       }
     }
@@ -87,25 +105,38 @@ export function makePerson(shirt, pants, skin = 0xc68863) {
   const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.34), mat(shirt));
   torso.position.y = 1.05; torso.castShadow = true; g.add(torso);
+  // Jacket panel: a darker chest strip so the torso is not one flat slab.
+  const jacket = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.06), mat(0x2c2f3a));
+  jacket.position.set(0, 1.08, 0.18); g.add(jacket);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.34), mat(skin));
   head.position.y = 1.62; head.castShadow = true; g.add(head);
-  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 0.36), mat(0x1c1410));
-  hair.position.y = 1.82; g.add(hair);
+  // Cap with a brim (GTA look) instead of a flat hair slab.
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.36), mat(0xffc93c));
+  cap.position.y = 1.84; g.add(cap);
+  const brim = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.04, 0.22), mat(0xffc93c));
+  brim.position.set(0, 1.8, 0.26); g.add(brim);
   const legL = new THREE.Group(); legL.position.set(-0.16, 0.72, 0);
   const legR = new THREE.Group(); legR.position.set(0.16, 0.72, 0);
   for (const leg of [legL, legR]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.72, 0.26), mat(pants));
-    m.position.y = -0.36; m.castShadow = true; leg.add(m); g.add(leg);
+    m.position.y = -0.36; m.castShadow = true; leg.add(m);
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.36), mat(0x1c1c22));
+    shoe.position.set(0, -0.68, 0.04); leg.add(shoe);
+    g.add(leg);
   }
   const armL = new THREE.Group(); armL.position.set(-0.42, 1.36, 0);
   const armR = new THREE.Group(); armR.position.set(0.42, 1.36, 0);
   for (const arm of [armL, armR]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.62, 0.22), mat(shirt));
-    m.position.y = -0.31; m.castShadow = true; arm.add(m); g.add(arm);
+    m.position.y = -0.31; m.castShadow = true; arm.add(m);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.2), mat(skin));
+    hand.position.y = -0.64; arm.add(hand);
   }
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.1), mat(0x222222));
-  gun.position.set(0, -0.62, 0.18); gun.visible = false; armR.add(gun);
-  g.userData = { legL, legR, armL, armR, gun, phase: ((personSeq += 1) * 1.7) % 6, torso, head };
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.1, 0.12), mat(0x181818));
+  gun.position.set(0, -0.62, 0.22); gun.visible = false; armR.add(gun);
+  const gunBarrel = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.08), mat(0x181818));
+  gunBarrel.position.set(0.4, -0.62, 0.22); gunBarrel.visible = false; armR.add(gunBarrel);
+  g.userData = { legL, legR, armL, armR, gun, gunBarrel, phase: ((personSeq += 1) * 1.7) % 6, torso, head };
   return g;
 }
 
@@ -121,67 +152,82 @@ export function animatePerson(g, speed, dt, aiming, shooting) {
     u.armL.rotation.x = -Math.PI / 2 + 0.25;
     u.armL.rotation.z = 0.5;
     u.legL.rotation.x *= 0.4; u.legR.rotation.x *= 0.4;
-    u.gun.visible = true;
+    u.gun.visible = true; if (u.gunBarrel) u.gunBarrel.visible = true;
   } else {
     u.armL.rotation.x = -swing * 0.8;
     u.armR.rotation.x = swing * 0.8;
     u.armL.rotation.z = 0; u.armR.rotation.x = -swing * 0.8;
-    u.gun.visible = false;
+    u.gun.visible = false; if (u.gunBarrel) u.gunBarrel.visible = false;
   }
   // Idle breathing so standing figures are not statues.
   u.torso.position.y = 1.05 + (moving ? 0 : Math.sin(u.phase * 0.5) * 0.015);
 }
 
-// ---- low-poly car: body + cabin + wheels + lights. Cop cars get a flashing
-// light bar; gang cars get gold trim. Player car gets headlight cones.
+// ---- low-poly car: low wide sports body + cabin + wheels with rims +
+// lights. Cop cars get a flashing light bar; gang cars get gold trim.
+// Player car gets a big spoiler + headlight cones. Sleeker than v6.0: the
+// top-10 cars are low, wide and bright with visible wheels and a spoiler.
 export function makeCar(color, opts = {}) {
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color: hexColor(color) });
-  const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.62, 1.7), bodyMat);
-  body.position.y = 0.55; body.castShadow = true; g.add(body);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.42, 1.6), bodyMat);
-  nose.position.set(1.85, 0.48, 0); nose.castShadow = true; g.add(nose);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.55, 1.5), darkMat);
-  cabin.position.set(-0.15, 1.08, 0); cabin.castShadow = true; g.add(cabin);
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 1.45), bodyMat);
-  roof.position.set(-0.15, 1.38, 0); g.add(roof);
-  const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.28, 10);
+  // Cabin/trim charcoal: v6.2 used near-black #14161c, so the cabin read
+  // as a flat black box from behind (end shot). #262b33 still reads as
+  // tinted glass/trim but shows shape under the fill light.
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x262b33 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.5, 1.78), bodyMat);
+  body.position.y = 0.5; body.castShadow = true; g.add(body);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.34, 1.66), bodyMat);
+  nose.position.set(2.05, 0.42, 0); nose.castShadow = true; g.add(nose);
+  // Front splitter + side skirts: the low stance the top-10 cars have.
+  const splitter = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 1.7), darkMat);
+  splitter.position.set(2.45, 0.18, 0); g.add(splitter);
+  for (const z of [0.86, -0.86]) {
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 0.08), darkMat);
+    skirt.position.set(0, 0.2, z); g.add(skirt);
+  }
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 1.45), darkMat);
+  cabin.position.set(-0.25, 0.98, 0); cabin.castShadow = true; g.add(cabin);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.07, 1.4), bodyMat);
+  roof.position.set(-0.25, 1.26, 0); g.add(roof);
+  const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 12);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
-  for (const [wx, wz] of [[1.15, 0.82], [1.15, -0.82], [-1.15, 0.82], [-1.15, -0.82]]) {
+  const rimGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.32, 8);
+  const rimMat = new THREE.MeshLambertMaterial({ color: 0xc8ccd2 });
+  for (const [wx, wz] of [[1.25, 0.86], [1.25, -0.86], [-1.25, 0.86], [-1.25, -0.86]]) {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
-    w.rotation.x = Math.PI / 2; w.position.set(wx, 0.36, wz); w.castShadow = true; g.add(w);
+    w.rotation.x = Math.PI / 2; w.position.set(wx, 0.38, wz); w.castShadow = true; g.add(w);
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    rim.rotation.x = Math.PI / 2; rim.position.set(wx, 0.38, wz); g.add(rim);
   }
-  const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6c9 });
-  for (const z of [0.55, -0.55]) {
-    const h = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.3), headMat);
-    h.position.set(2.21, 0.55, z); g.add(h);
+  const headMat = new THREE.MeshBasicMaterial({ color: 0xfff9d0 });
+  for (const z of [0.58, -0.58]) {
+    const h = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.34), headMat);
+    h.position.set(2.52, 0.5, z); g.add(h);
   }
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a22 });
-  for (const z of [0.55, -0.55]) {
-    const t = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.3), tailMat);
-    t.position.set(-1.75, 0.55, z); g.add(t);
-  }
+  // Full-width tail light bar — the glowing red strip in the top-10 shots.
+  // Taller (0.24) so it reads from dead behind in the end shot.
+  const tailBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.24, 1.5), new THREE.MeshBasicMaterial({ color: 0xff2a22 }));
+  tailBar.position.set(-1.93, 0.52, 0); g.add(tailBar);
   let barR = null, barB = null;
   if (opts.cop) {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 1.1), darkMat);
-    bar.position.set(-0.15, 1.46, 0); g.add(bar);
+    bar.position.set(-0.25, 1.34, 0); g.add(bar);
     barR = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.14, 0.5), new THREE.MeshBasicMaterial({ color: 0xff2222 }));
-    barR.position.set(-0.15, 1.48, 0.28); g.add(barR);
+    barR.position.set(-0.25, 1.36, 0.28); g.add(barR);
     barB = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.14, 0.5), new THREE.MeshBasicMaterial({ color: 0x2244ff }));
-    barB.position.set(-0.15, 1.48, -0.28); g.add(barB);
+    barB.position.set(-0.25, 1.36, -0.28); g.add(barB);
   }
   if (opts.gang) {
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(3.42, 0.1, 1.72), new THREE.MeshBasicMaterial({ color: 0xf1c40f }));
-    trim.position.y = 0.88; g.add(trim);
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(3.82, 0.1, 1.8), new THREE.MeshBasicMaterial({ color: 0xf1c40f }));
+    trim.position.y = 0.78; g.add(trim);
   }
   if (opts.player) {
-    // Spoiler, so the player's car reads as a sports car from the chase cam.
-    const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 1.7), darkMat);
-    spoiler.position.set(-1.7, 1.05, 0); g.add(spoiler);
+    // Big wing spoiler, so the player's car reads as a sports car from the chase cam.
+    const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.07, 1.9), darkMat);
+    spoiler.position.set(-1.95, 1.02, 0); g.add(spoiler);
     const strut = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.35, 0.12), darkMat);
-    strut.position.set(-1.7, 0.85, 0.5); g.add(strut);
-    const strut2 = strut.clone(); strut2.position.z = -0.5; g.add(strut2);
+    strut.position.set(-1.95, 0.82, 0.55); g.add(strut);
+    const strut2 = strut.clone(); strut2.position.z = -0.55; g.add(strut2);
     // Headlight cones: translucent, only visible at sunset/night.
     const coneGeo = new THREE.ConeGeometry(0.9, 6, 12, 1, true);
     const coneMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false });
@@ -216,32 +262,41 @@ function makePalm(h = 7) {
 
 function makeHeli() {
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x2f6fd0 });
+  // White body with a blue stripe: the top-10 helis read light against the
+  // sky, while v6.0's dark-blue body was a flat black silhouette.
+  const bodyMat = new THREE.MeshLambertMaterial({ color: 0xe8ecf0 });
+  const stripeMat = new THREE.MeshLambertMaterial({ color: 0x2f6fd0 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.1, 1.6), bodyMat);
   body.castShadow = true; g.add(body);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.62, 0.3, 1.62), stripeMat);
+  stripe.position.y = -0.25; g.add(stripe);
   const glass = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.4), new THREE.MeshLambertMaterial({ color: 0x9fd8ef }));
   glass.position.set(1.4, 0.1, 0); g.add(glass);
   const tail = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.4, 0.4), bodyMat);
   tail.position.set(-2.8, 0.35, 0); g.add(tail);
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.1, 0.1), bodyMat);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.1, 0.1), stripeMat);
   fin.position.set(-4.3, 0.7, 0); g.add(fin);
   const skidMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
   for (const z of [0.7, -0.7]) {
     const skid = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 0.12), skidMat);
     skid.position.set(0, -0.75, z); g.add(skid);
   }
+  // Belly spotlight: a bright disc under the body so the heli is never a
+  // silhouette from below.
+  const belly = new THREE.Mesh(new THREE.CircleGeometry(0.45, 12), new THREE.MeshBasicMaterial({ color: 0xfffbe0 }));
+  belly.rotation.x = Math.PI / 2; belly.position.y = -0.56; g.add(belly);
   const rotor = new THREE.Group(); rotor.position.y = 0.75;
-  const bladeMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
+  const bladeMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
   for (const a of [0, Math.PI / 2]) {
     const blade = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.06, 0.35), bladeMat);
     blade.rotation.y = a; rotor.add(blade);
   }
   g.add(rotor);
-  // Searchlight: a translucent cone + a bright pool on the ground.
-  const coneMat = new THREE.MeshBasicMaterial({ color: 0xfff8c0, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
-  const cone = new THREE.ConeGeometry(4, 14, 16, 1, true);
+  // Searchlight: a narrower, brighter cone + a bright pool on the ground.
+  const coneMat = new THREE.MeshBasicMaterial({ color: 0xfff8c0, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false });
+  const cone = new THREE.ConeGeometry(3.2, 16, 16, 1, true);
   const beam = new THREE.Mesh(cone, coneMat);
-  beam.position.y = -7; beam.rotation.x = Math.PI; g.add(beam);
+  beam.position.y = -8; beam.rotation.x = Math.PI; g.add(beam);
   g.userData.rotor = rotor; g.userData.beam = beam;
   return g;
 }
@@ -254,13 +309,13 @@ export function createRenderer3D(canvas) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.35;
+  renderer.toneMappingExposure = 1.6;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(PHASES.sunset.sky);
-  scene.fog = new THREE.Fog(PHASES.sunset.fog, 90, 320);
+  scene.fog = new THREE.Fog(PHASES.sunset.fog, 100, 420);
 
-  const camera = new THREE.PerspectiveCamera(64, 1, 0.1, 900);
+  const camera = new THREE.PerspectiveCamera(64, 1, 0.1, 1200);
   camera.position.set(0, 20, 40);
 
   const sun = new THREE.DirectionalLight(0xff9a3c, 2.8);
@@ -272,8 +327,38 @@ export function createRenderer3D(canvas) {
   scene.add(sun); scene.add(sun.target);
   const hemi = new THREE.HemisphereLight(0x8a5a8a, 0x3a2a1a, 0.75);
   scene.add(hemi);
+  // Ambient fill: v6.0 had no ambient light at all, which is why shadow
+  // sides of buildings and cars went near-black. PHASES.amb drives it.
+  const amb = new THREE.AmbientLight(0xfff2dd, 0.45);
+  scene.add(amb);
+  // Warm fill from the east (behind the chase camera when driving west
+  // into the sunset): lifts the shadow side of cars/buildings — the rear
+  // of the player car read near-black in the end shot without it.
+  const fill = new THREE.DirectionalLight(0xffd9b0, 0.4);
+  fill.position.set(60, 30, 0);
+  scene.add(fill); scene.add(fill.target);
   const headSpot = new THREE.SpotLight(0xfff2b0, 0, 60, 0.5, 0.5, 1.2);
   scene.add(headSpot); scene.add(headSpot.target);
+
+  // Gradient sky dome (one canvas texture per phase): the dome follows the
+  // camera so the horizon gradient is always in frame.
+  const skyTextures = new Map();
+  function skyTextureFor(phase) {
+    if (!skyTextures.has(phase)) {
+      const stops = SKY_STOPS[phase] || SKY_STOPS.sunset;
+      skyTextures.set(phase, canvasTexture(4, 256, (g, w, h) => {
+        const grad = g.createLinearGradient(0, 0, 0, h);
+        for (const [o, c] of stops) grad.addColorStop(o, c);
+        g.fillStyle = grad; g.fillRect(0, 0, w, h);
+      }));
+    }
+    return skyTextures.get(phase);
+  }
+  const skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(760, 24, 16),
+    new THREE.MeshBasicMaterial({ map: skyTextureFor('sunset'), side: THREE.BackSide, fog: false, depthWrite: false }));
+  skyDome.renderOrder = -1;
+  scene.add(skyDome);
 
   // Sun disc sprite, low on the horizon at golden hour.
   const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTexture(), transparent: true, depthWrite: false, fog: false }));
@@ -284,17 +369,17 @@ export function createRenderer3D(canvas) {
   const city = new THREE.Group();
   scene.add(city);
   const groundMat = (c) => new THREE.MeshLambertMaterial({ color: c });
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD.width * S + 120, WORLD.height * S + 120), groundMat(0x7a7f6a));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD.width * S + 120, WORLD.height * S + 120), groundMat(0x8b9078));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; city.add(ground);
   // Ocean west of the beach + sand strip.
-  const ocean = new THREE.Mesh(new THREE.PlaneGeometry(140, WORLD.height * S + 140), new THREE.MeshLambertMaterial({ color: 0x1b6f8e }));
+  const ocean = new THREE.Mesh(new THREE.PlaneGeometry(140, WORLD.height * S + 140), new THREE.MeshLambertMaterial({ color: 0x207fa8 }));
   ocean.rotation.x = -Math.PI / 2; ocean.position.set(-CX - 70 + 18, -0.05, 0); ocean.receiveShadow = true; city.add(ocean);
   const sand = new THREE.Mesh(new THREE.PlaneGeometry(300 * S + 6, WORLD.height * S), groundMat(0xe8c98f));
   sand.rotation.x = -Math.PI / 2; sand.position.set(-CX + 150 * S, 0.02, 0); sand.receiveShadow = true; city.add(sand);
   // District ground washes.
   const districtWash = [
-    { x0: 2240, y0: 0, x1: 3600, y1: 1600, c: 0x4a4356 },
-    { x0: 2624, y0: 1600, x1: 3600, y1: 2600, c: 0x6e6250 },
+    { x0: 2240, y0: 0, x1: 3600, y1: 1600, c: 0x5d5470 },
+    { x0: 2624, y0: 1600, x1: 3600, y1: 2600, c: 0x7f7361 },
   ];
   for (const d of districtWash) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry((d.x1 - d.x0) * S, (d.y1 - d.y0) * S), groundMat(d.c));
@@ -302,8 +387,9 @@ export function createRenderer3D(canvas) {
     m.position.set(((d.x0 + d.x1) / 2) * S - CX, 0.03, ((d.y0 + d.y1) / 2) * S - CZ);
     m.receiveShadow = true; city.add(m);
   }
-  // Roads: dark strips + dashed centre lines.
-  const roadMat = groundMat(0x454850);
+  // Roads: lighter asphalt + dashed centre lines (v6.0's near-black roads
+  // swallowed the cars; the top-10 asphalt is light grey).
+  const roadMat = groundMat(0x5d616b);
   const dashMat = new THREE.MeshBasicMaterial({ color: 0xd8d8c8 });
   for (const rx of ROADS_V) {
     const r = new THREE.Mesh(new THREE.PlaneGeometry(9, WORLD.height * S), roadMat);
@@ -362,6 +448,12 @@ export function createRenderer3D(canvas) {
     const palmSpots = [];
     for (let y = 100; y < WORLD.height; y += 260) palmSpots.push([180, y]);
     for (let y = 200; y < WORLD.height; y += 520) palmSpots.push([330, y]);
+    // Boulevard rows along the main east-west road (y=960), just off the
+    // asphalt on the sidewalk strip — the palm-lined avenue of the chase.
+    for (let x = 480; x < WORLD.width; x += 340) {
+      palmSpots.push([x, 960 - 48]);
+      palmSpots.push([x + 170, 960 + 48]);
+    }
     for (const t of st.trees) palmSpots.push([t.x, t.y]);
     for (const [x, y] of palmSpots) {
       const palm = makePalm(6 + ((x * 13 + y * 7) % 3));
@@ -417,8 +509,8 @@ export function createRenderer3D(canvas) {
   const playerMesh = makePerson(0xff5a3c, 0x2c3e50);
   playerMesh.visible = false; scene.add(playerMesh);
   const heliMesh = makeHeli(); heliMesh.visible = false; scene.add(heliMesh);
-  const heliPool = new THREE.Mesh(new THREE.CircleGeometry(3.4, 20),
-    new THREE.MeshBasicMaterial({ color: 0xfff8c0, transparent: true, opacity: 0.22, depthWrite: false }));
+  const heliPool = new THREE.Mesh(new THREE.CircleGeometry(2.8, 20),
+    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.16, depthWrite: false }));
   heliPool.rotation.x = -Math.PI / 2; heliPool.visible = false; scene.add(heliPool);
 
   // Mission beacon: gold light pillar + floating diamond.
@@ -448,8 +540,10 @@ export function createRenderer3D(canvas) {
   const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 1.6, vertexColors: true, transparent: true, opacity: 0.95 }));
   points.frustumCulled = false; scene.add(points);
   const bulletPool = [];
-  const bulletGeo = new THREE.BoxGeometry(1.6, 0.08, 0.08);
-  const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffe27a });
+  // Tracers are long thin lines: v6.1's chunky 1.6x0.08 boxes read as white
+  // planks when one passes near the camera.
+  const bulletGeo = new THREE.BoxGeometry(2.4, 0.05, 0.05);
+  const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffd76a });
   for (let i = 0; i < 24; i += 1) {
     const b = new THREE.Mesh(bulletGeo, bulletMat);
     b.visible = false; scene.add(b); bulletPool.push(b);
@@ -470,6 +564,21 @@ export function createRenderer3D(canvas) {
   // Explosion flash light (reused, cheap).
   const boomLight = new THREE.PointLight(0xff7722, 0, 40, 1.5);
   scene.add(boomLight);
+  // Fireball mesh: the 50 fireball particles are 1.6-unit points, so at
+  // 35+ units they read as scattered dots, not a burning wreck. Two
+  // unlit spheres (orange shell + yellow core) make the explosion read
+  // as a solid glowing ball from the chase cam. Shown only while a big
+  // orange burst is live.
+  const fireballMesh = new THREE.Group();
+  const fbOuter = new THREE.Mesh(
+    new THREE.SphereGeometry(3.4, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0xff5722, transparent: true, opacity: 0.85 }));
+  const fbInner = new THREE.Mesh(
+    new THREE.SphereGeometry(1.9, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffcc55, transparent: true, opacity: 0.95 }));
+  fireballMesh.add(fbOuter); fireballMesh.add(fbInner);
+  fireballMesh.visible = false;
+  scene.add(fireballMesh);
 
   let camPos = new THREE.Vector3(0, 24, 46);
   let camLook = new THREE.Vector3(0, 0, 0);
@@ -480,9 +589,12 @@ export function createRenderer3D(canvas) {
     const p = PHASES[raining ? 'rain' : phase] || PHASES.sunset;
     scene.background.set(p.sky);
     scene.fog.color.set(p.fog);
+    skyDome.material.map = skyTextureFor(raining ? 'rain' : phase);
+    skyDome.material.needsUpdate = true;
     sun.color.set(p.sun); sun.intensity = p.sunI;
     sun.position.set(p.sunPos[0], p.sunPos[1], p.sunPos[2]);
     hemi.color.set(p.hemi); hemi.intensity = p.hemiI;
+    amb.intensity = p.amb;
     if (p.sunSprite) {
       sunSprite.visible = true;
       sunSprite.material.color.set(0xfff6d8);
@@ -523,7 +635,7 @@ export function createRenderer3D(canvas) {
     const allCars = [...st.cars, ...st.gangCars];
     for (const c of allCars) {
       const d = Math.hypot(c.x - p.x, c.y - p.y);
-      if (d > 260 && !c.cop) continue;
+      if (d > 420 && !c.cop) continue;
       seenCars.add(c.id);
       const g = carMeshFor(c, car === c);
       const pos = to3(c.x, c.y, 0);
@@ -581,7 +693,7 @@ export function createRenderer3D(canvas) {
     heliPool.visible = !!heli;
     if (heli) {
       heliMesh.scale.setScalar(2.2);
-      const hp = to3(heli.x, heli.y, 16);
+      const hp = to3(heli.x, heli.y, 13);
       heliMesh.position.copy(hp);
       heliMesh.rotation.y = rotY(Math.atan2(p.y - heli.y, p.x - heli.x));
       heliMesh.userData.rotor.rotation.y = (heli.rotor || 0);
@@ -610,11 +722,19 @@ export function createRenderer3D(canvas) {
     for (; pi < pickupPool.length; pi += 1) pickupPool[pi].visible = false;
 
     // ---- particles + bullets ----
+    // Near-camera cull: a smoke puff is a 1.6-unit gl_Point square; one
+    // spawned just behind the car sits ~4 units from the chase camera and
+    // renders as a giant white slab filling the frame (the mystery white
+    // rectangle in the chase shot). Park any particle within 8 units of
+    // the camera far underground so it never blocks the view. The smoke
+    // trail further back and the wreck fireball are unaffected.
     let n = 0;
     for (const pt of st.particles) {
       if (n >= MAXP) break;
       const pos = to3(pt.x, pt.y, 0.6);
-      pPos[n * 3] = pos.x; pPos[n * 3 + 1] = pos.y; pPos[n * 3 + 2] = pos.z;
+      const dx = pos.x - camPos.x; const dy = pos.y - camPos.y; const dz = pos.z - camPos.z;
+      const nearCam = dx * dx + dy * dy + dz * dz < 64;
+      pPos[n * 3] = pos.x; pPos[n * 3 + 1] = nearCam ? -999 : pos.y; pPos[n * 3 + 2] = pos.z;
       const c = new THREE.Color(pt.color || '#ffcc55');
       pCol[n * 3] = c.r; pCol[n * 3 + 1] = c.g; pCol[n * 3 + 2] = c.b;
       n += 1;
@@ -625,7 +745,23 @@ export function createRenderer3D(canvas) {
     // Explosion flash when a big orange burst is live.
     const big = st.particles.some((pt) => (pt.color === '#ff5722' || pt.color === '#ff7722') && pt.life > 0.5);
     boomLight.intensity = big ? 60 : 0;
-    if (big) { const bp = st.particles.find((pt) => pt.color === '#ff5722'); if (bp) { const v = to3(bp.x, bp.y, 3); boomLight.position.copy(v); } }
+    // Fireball mesh: visible for the whole burst (life > 0), not just the
+    // flash window, so a burning wreck reads in live play too.
+    const fbLive = st.particles.some((pt) => (pt.color === '#ff5722' || pt.color === '#ffcc55') && pt.life > 0);
+    if (fbLive) {
+      // Centroid of the fireball particles (they ring the wreck, so the
+      // centroid is the wreck itself) — the mesh sits on the burning car.
+      let cx = 0; let cy = 0; let cn = 0;
+      for (const pt of st.particles) {
+        if ((pt.color === '#ff5722' || pt.color === '#ffcc55') && pt.life > 0) { cx += pt.x; cy += pt.y; cn += 1; }
+      }
+      if (cn > 0) {
+        const v = to3(cx / cn, cy / cn, 3);
+        if (big) boomLight.position.copy(v);
+        fireballMesh.position.set(v.x, 2.2, v.z);
+      }
+    }
+    fireballMesh.visible = fbLive;
     let bi = 0;
     for (const b of st.bullets) {
       if (bi >= bulletPool.length) break;
@@ -664,13 +800,19 @@ export function createRenderer3D(canvas) {
         new THREE.Vector3(Math.sin(t) * 60 - 60, 26 + Math.sin(t * 0.7) * 4, Math.cos(t) * 40 + 10),
         new THREE.Vector3(-120, 2, 0), 58, 0.001);
     } else if (inCar && car) {
+      // Low close chase cam: the top-10 cars fill the lower-centre frame.
+      // v6.0 sat 7.5 back / 2.9 up and the player car read as a small box.
+      // When the heli is up, pitch the look-target up (y 1.3 -> 4.0) so
+      // the heli body clears the top edge instead of being cut to rotor
+      // blades only; the car stays in the lower frame.
       const a = car.angle;
-      const back = 7.5 + speedF * 3.0;
-      const up = 2.9 + speedF * 0.5;
+      const back = 5.6 + speedF * 2.2;
+      const up = 2.1 + speedF * 0.35;
+      const lookY = st.heli ? 4.0 : 1.3;
       placeCam(
         new THREE.Vector3(pp.x - Math.cos(a) * back, up, pp.z - Math.sin(a) * back),
-        new THREE.Vector3(pp.x + Math.cos(a) * 9, 1.4, pp.z + Math.sin(a) * 9),
-        62 + speedF * 16, 0.001);
+        new THREE.Vector3(pp.x + Math.cos(a) * 8, lookY, pp.z + Math.sin(a) * 8),
+        58 + speedF * 12, 0.001);
     } else if (aiming) {
       // Over-shoulder: character left-of-centre, gun raised, crosshair ahead.
       const a = opts.aimAngle != null ? opts.aimAngle : p.angle;
@@ -685,7 +827,7 @@ export function createRenderer3D(canvas) {
     } else {
       const a = p.angle;
       placeCam(
-        new THREE.Vector3(pp.x - Math.cos(a) * 7.5, 3.4, pp.z - Math.sin(a) * 7.5),
+        new THREE.Vector3(pp.x - Math.cos(a) * 6.8, 3.0, pp.z - Math.sin(a) * 6.8),
         new THREE.Vector3(pp.x + Math.cos(a) * 6, 1.3, pp.z + Math.sin(a) * 6),
         60, 0.001);
     }
@@ -693,6 +835,8 @@ export function createRenderer3D(canvas) {
     camera.lookAt(camLook);
     camera.fov = fov;
     camera.updateProjectionMatrix();
+    // Sky dome follows the camera so the gradient horizon never runs out.
+    skyDome.position.set(camPos.x, 0, camPos.z);
 
     // Sun + shadows follow the player so the shadow frustum stays useful.
     sun.position.set(pp.x + PHASES[raining ? 'rain' : phase].sunPos[0] * 0.4, PHASES[raining ? 'rain' : phase].sunPos[1], pp.z + PHASES[raining ? 'rain' : phase].sunPos[2] * 0.4);

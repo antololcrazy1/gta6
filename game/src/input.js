@@ -49,6 +49,19 @@ export function createInput(canvas) {
   const mouse = { x: 0, y: 0, down: false, aiming: false };
   const touch = { active: false, move: { x: 0, y: 0 }, gas: false, brake: false, shooting: false, elements: null };
   let knobEl = null;
+  // Driving-mode buttons (toggled by setInCar): GAS/BRK only make sense in
+  // a car, SHOOT only on foot. Kept here so setInCar can flip them.
+  let gasBtn = null, brakeBtn = null, shootBtn = null;
+  function setInCar(inCar) {
+    if (!gasBtn) return;
+    gasBtn.style.display = inCar ? 'flex' : 'none';
+    brakeBtn.style.display = inCar ? 'flex' : 'none';
+    shootBtn.style.display = inCar ? 'none' : 'flex';
+    // A button hidden mid-press never fires pointerup: drop the held state
+    // of the buttons that just disappeared, or the car/player drives itself.
+    if (inCar) touch.shooting = false;
+    else { touch.gas = false; touch.brake = false; }
+  }
 
   function queue(action) { actions |= action; }
   function releaseAll() {
@@ -140,21 +153,28 @@ export function createInput(canvas) {
     const shoot = makeButton('SHOOT', 24, 204, () => { touch.shooting = true; queue(ACTION_SHOOT); }, () => { touch.shooting = false; });
     const radio = makeButton('RADIO', 188, 36, () => queue(ACTION_RADIO));
     const phone = makeButton('PHONE', 188, 120, () => queue(ACTION_PHONE));
+    gasBtn = gas; brakeBtn = brake; shootBtn = shoot;
+    // On foot by default: GAS/BRK hidden until the player enters a car.
+    setInCar(false);
     for (const b of [gas, brake, enter, shoot, radio, phone]) root.appendChild(b);
     document.body.appendChild(root);
     touch.elements = root;
   }
 
   return {
-    held, mouse, touch, queue, releaseAll,
+    held, mouse, touch, queue, releaseAll, setInCar,
     move() {
+      // Keyboard + GAS/BRK give the base vector. A live joystick steers
+      // (x) and, when no pedal is held, also throttles (y) — but GAS/BRK
+      // always win the throttle: v6.1 let a held joystick swallow GAS
+      // entirely, so steering + GAS together left the car dead.
+      let x = (held.right ? 1 : 0) - (held.left ? 1 : 0);
+      let y = (held.down || touch.brake ? 1 : 0) - (held.up || touch.gas ? 1 : 0);
       if (touch.active && (Math.abs(touch.move.x) > 0.15 || Math.abs(touch.move.y) > 0.15)) {
-        return { x: touch.move.x, y: touch.move.y };
+        x = touch.move.x;
+        if (!touch.gas && !touch.brake) y = touch.move.y;
       }
-      return {
-        x: (held.right ? 1 : 0) - (held.left ? 1 : 0),
-        y: (held.down || touch.brake ? 1 : 0) - (held.up || touch.gas ? 1 : 0),
-      };
+      return { x, y };
     },
     takeActions() { const t = actions; actions = 0; return t; },
   };

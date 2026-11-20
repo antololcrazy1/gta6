@@ -62,7 +62,7 @@ function runShot(name) {
   }
   window.__game = {
     state: world.state, world, audio, shop: world.shop, phone: world.phone,
-    weather: world.weather, get heli() { return world.state.heli; },
+    weather: world.weather, get heli() { return world.state.heli; }, renderer3d,
   };
   requestAnimationFrame(paint);
 }
@@ -76,6 +76,7 @@ function runGame() {
   let accumulator = 0; let last = performance.now(); let time = 0;
   let prevWanted = 0;
   let prevDriveby = -1;
+  let lastInCar = false;
   let pendingShoot = false; let pendingEnter = false;
   let radioIdx = 0;
   let aimAngle = 0;
@@ -193,6 +194,9 @@ function runGame() {
     };
     pendingShoot = false; pendingEnter = false;
     const events = world.step(STEP, ctrl, false);
+    // Touch mode switch: driving buttons (GAS/BRK) come out when the player
+    // enters a car and SHOOT (useless in a car) hides; on foot it flips back.
+    if (st.player.inCar !== lastInCar) { lastInCar = st.player.inCar; input.setInCar(lastInCar); }
     if (st.shotsFired > beforeShots && enemyHealth() < beforeHealth) hud.showHit();
     try {
       radio.tick(STEP);

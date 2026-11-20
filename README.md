@@ -83,9 +83,9 @@ On touch devices: left stick to move, GAS / BRAKE to drive, ENTER / SHOOT / RADI
 
 Staged by an autopilot playing the real game rules forward from a fresh world (`game/src/shots.js`, `?shot=chase|play|heist|end&seed=19`) — the chase is the cover, so the first thing a judge sees is gameplay, not the title screen:
 
-1. `1-chase.jpg` — a 3-star police chase through Neon Downtown at night, in the rain
-2. `2-play.jpg` — the Harbor Lights smuggle drive along the docks in daylight
-3. `3-heist.jpg` — the Neon Reign gang turf shootout at night in Neon Downtown
+1. `1-chase.jpg` — a 4-star golden-hour police chase down the palm-lined boulevard into the low sun, helicopter overhead, roadblock + burning wreck ahead
+2. `2-play.jpg` — an on-foot over-shoulder shootout on the Sunset Pier approach at sunset, cop car ahead, hit marker lit
+3. `3-heist.jpg` — the Neon Reign gang turf shootout at sunset in Neon Downtown, one Viper car burning
 4. `4-end.jpg` — the Vice Coast Finale win screen at the Sunset Pier at sunset
 
 ## Tech

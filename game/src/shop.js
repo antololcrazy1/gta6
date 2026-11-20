@@ -37,8 +37,10 @@ export function createShop() {
     } else if (itemId === 'paint') {
       const car = state.cars.find((c) => c.id === state.player.carId);
       if (!car) return { ok: false, msg: 'Get in a car first, then buy paint.' };
-      data.paintIndex = (data.paintIndex + 1) % PAINTS.length;
-      car.color = PAINTS[data.paintIndex];
+      // Kingpin (rank 4) adds gold to the paint cycle.
+      const palette = state.rank >= 4 ? [...PAINTS, '#ffd700'] : PAINTS;
+      data.paintIndex = (data.paintIndex + 1) % palette.length;
+      car.color = palette[data.paintIndex];
     }
     state.money -= item.price;
     state.message = `Bought ${item.name} for $${item.price}.`; state.messageTimer = 3;

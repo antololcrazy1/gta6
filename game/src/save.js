@@ -11,6 +11,11 @@ export function saveGame(state) {
       respect: state.respect,
       missionsDone: state.missionsDone,
       best: Math.max(state.best || 0, state.money),
+      // Phase 3: keep unlocked weapons + rank + equipped weapon across
+      // sessions (old saves without these fields load with defaults).
+      rank: state.rank || 0,
+      weapons: Object.keys(state.weapons || {}).filter((w) => state.weapons[w]),
+      weapon: state.player ? state.player.weapon : 'pistol',
     };
     window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
@@ -23,7 +28,7 @@ export function loadSave() {
     if (!raw) return null;
     const d = JSON.parse(raw);
     if (typeof d.money !== 'number' || typeof d.missionsDone !== 'number') return null;
-    return { money: d.money, respect: d.respect || 0, missionsDone: d.missionsDone, best: d.best || 0 };
+    return { money: d.money, respect: d.respect || 0, missionsDone: d.missionsDone, best: d.best || 0, rank: d.rank || 0, weapons: Array.isArray(d.weapons) ? d.weapons : [], weapon: d.weapon || 'pistol' };
   } catch { return null; }
 }
 

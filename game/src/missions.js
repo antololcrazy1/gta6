@@ -3,29 +3,30 @@
 // live state object and passes it in, so this file has no browser or drawing.
 // v5 adds three missions after the Sunset Showdown: Harbor Lights (smuggle
 // run), Neon Reign (gang turf) and the Vice Coast Finale (bank heist, 5 stars,
-// escape to the pier). Total story money: $9,650.
+// escape to the pier). Total story money: $9,650 in mission rewards, $9,850
+// with the mission-5 vault bonus.
 import { NIGHT_DROPS } from './config.js';
 import { GANG_TURF } from './gang.js';
 
 export const MISSIONS = [
   { id: 1, name: 'Sunset Taxi', brief: 'Pick up Maya at the pier, then drop her at the Neon Hotel. Drive smooth — she tips for speed.', reward: 150 },
   { id: 2, name: 'Package Run', brief: 'Collect 3 packages around Palm Row and deliver them to the docks. Watch the clock.', reward: 250 },
-  { id: 3, name: 'Getaway', brief: 'Grab the bag from the arcade and reach the hideout in 75 seconds. The cops will not wait.', reward: 350 },
+  { id: 3, name: 'Getaway', brief: 'Grab the bag from the arcade and reach the hideout in 3 minutes. The cops will not wait.', reward: 350 },
   { id: 4, name: 'Lose the Heat', brief: 'You are at 3 stars. Break line of sight and stay hidden until the heat dies down.', reward: 400 },
   { id: 5, name: 'The Sunset Heist', brief: 'Hit the Coral Bank vault, grab the loot, and escape to the hideout. Finish this and Vice Coast is yours.', reward: 800 },
   { id: 6, name: 'Vice Nights', brief: 'Collect 4 night drops, one at each corner of the city, then deliver them to the hideout. It starts hot — 4 stars the moment you begin, heli already up.', reward: 1000 },
-  { id: 7, name: 'Sunset Showdown', brief: 'Reach the Sunset Pier in 75 seconds with 5 stars on you. Finish this and Vice Coast is yours.', reward: 1200 },
-  { id: 8, name: 'Harbor Lights', brief: 'Smuggle run: collect 3 crates on the docks road, then deliver them to the boat at the Sunset Pier. 120 seconds on the clock.', reward: 1400 },
+  { id: 7, name: 'Sunset Showdown', brief: 'Reach the Sunset Pier in 3 minutes with 5 stars on you. Finish this and Vice Coast is yours.', reward: 1200 },
+  { id: 8, name: 'Harbor Lights', brief: 'Smuggle run: collect 3 crates on the docks road, then deliver them to the boat at the Sunset Pier. 3 minutes on the clock.', reward: 1400 },
   { id: 9, name: 'Neon Reign', brief: 'Gang turf war: torch 3 rival gang cars in Neon Downtown, then hold the turf marker for 20 seconds. The Vipers will not give it up easy.', reward: 1600 },
-  { id: 10, name: 'Vice Coast Finale', brief: 'The last job: hit Coral Bank one more time at 5 stars, then escape to the Sunset Pier in 90 seconds. Pull this off and the coast is truly yours.', reward: 2500 },
+  { id: 10, name: 'Vice Coast Finale', brief: 'The last job: hit Coral Bank one more time at 5 stars, then escape to the Sunset Pier in 3 minutes. Pull this off and the coast is truly yours.', reward: 2500 },
 ];
 
 // Smuggle crates for Harbor Lights (mission 8): three spots along the docks
-// road at y=2240, collected in order, then the boat at the pier.
+// road at y=5687, collected in order, then the boat at the pier.
 export const HARBOR_CRATES = [
-  { x: 3008, y: 2240 },
-  { x: 3200, y: 2240 },
-  { x: 3392, y: 2240 },
+  { x: 9525, y: 5687 },
+  { x: 10133, y: 5687 },
+  { x: 10741, y: 5687 },
 ];
 
 // Fresh per-run mission fields, spread into the world state by createWorld.
@@ -63,13 +64,15 @@ export function refreshMissionTarget(state, landmarks) {
   state.missionText = `${MISSIONS[m].name} — ${state.missionTarget.label}`;
 }
 
-// How long a mission's clock runs: Package Run 120 s, Getaway and Sunset
-// Showdown 75 s, Harbor Lights 120 s, Vice Coast Finale 90 s, the rest
-// untimed (0).
+// How long a mission's clock runs: Package Run 150 s, Getaway / Sunset
+// Showdown / Harbor Lights / Vice Coast Finale 180 s, the rest untimed (0).
+// v6.5: the 10x map stretches every route ~3.2x (Package Run's route is
+// ~13,400 units now, ~60 s of driving at a realistic pace), so the old
+// 75/90/120 s clocks would time out on a clean drive. 150-180 s keeps the
+// same slack ratio the old timers had.
 export function missionTimerFor(missionIndex) {
-  if (missionIndex === 1 || missionIndex === 7) return 120;
-  if (missionIndex === 2 || missionIndex === 6) return 75;
-  if (missionIndex === 9) return 90;
+  if (missionIndex === 1) return 150;
+  if (missionIndex === 2 || missionIndex === 6 || missionIndex === 7 || missionIndex === 9) return 180;
   return 0;
 }
 

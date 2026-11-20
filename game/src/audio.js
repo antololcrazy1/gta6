@@ -1,6 +1,8 @@
 // Tiny WebAudio synth: no audio files, everything is oscillators + noise.
 // Engine hum, siren, gunshot, pickup blip, mission jingle, crash thud.
 // v5 adds a night ambience (soft crickets + wind) and a gang drive-by burst.
+import { CAR } from './config.js';
+
 export function createAudio() {
   let ctx = null; let muted = false; let engineOsc = null; let engineGain = null; let sirenTimer = 0; let rotorTimer = 0; let nightTimer = 0;
   function ensure() {
@@ -79,9 +81,10 @@ export function createAudio() {
     },
     engine(speed, inCar) {
       if (!ensure()) return;
-      const target = muted || !inCar ? 0 : 0.02 + Math.min(0.06, Math.abs(speed) / 560 * 0.06);
+      const f = Math.abs(speed) / CAR.maxSpeed;
+      const target = muted || !inCar ? 0 : 0.02 + Math.min(0.06, f * 0.06);
       engineGain.gain.setTargetAtTime(target, ctx.currentTime, 0.1);
-      engineOsc.frequency.setTargetAtTime(50 + Math.abs(speed) / 560 * 90, ctx.currentTime, 0.1);
+      engineOsc.frequency.setTargetAtTime(50 + f * 90, ctx.currentTime, 0.1);
     },
     mission() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.16), i * 110)); },
     busted() { [392, 330, 262].forEach((f, i) => setTimeout(() => tone(f, 0.3, 'sawtooth', 0.1), i * 160)); },

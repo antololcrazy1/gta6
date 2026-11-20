@@ -6,9 +6,18 @@
 
 An original open-world crime game built for the [make.fun](https://make.fun) bounty **[gta6-01 "Make GTA 6"](https://make.fun/bounty/gta6-01)** — a sun-soaked coastal city to explore on foot and by car, in the spirit of GTA 6, with none of Rockstar's names, characters, map, art or music. Everything here — the city, the characters, the story, the art and the sounds — is original.
 
-## Play it
+## v6 — now in 3D (branch `v6-3d`)
 
-Serve the `game/` folder with any static server, then open `game/index.html` in desktop Chrome. No build step, no network request — every script, image, sound and font is a file under `game/` or generated in code.
+v6 rebuilds Vice Coast as a **Three.js low-poly 3D** open world (vendored under `game/vendor/three.module.js`, zero network at runtime), benchmarked frame-by-frame against the gta6-01 top 10 and GTA V itself:
+
+- **Third-person chase cam** low behind the car (FOV widens with speed) + **on-foot third-person with an animated character** (walk / run / over-shoulder aim / shoot with hit marker, enter & exit cars)
+- **Golden-hour sunset by default** — orange-purple sky, low sun disc, long shadows, brake lights, wet-looking asphalt — plus the day/night cycle and rain from v5
+- **Dense GTA HUD**: mission panel + named police response list (KITE-1, MARLIN-3… with roles and distances), wanted stars, money + clock, weapon slots, crew cards, portrait dialogue, round minimap + health/armour, big speedometer + car name/condition/gear, radio ticker
+- **Busy scenes**: traffic, police cars with flashing light bars, a police helicopter with a searchlight cone, pedestrians, palms, beach + ocean, pier, docks containers, billboards
+- Same content as v5: **10-mission story** ($9,650), Viper gang turf wars, shop, phone side jobs, save/continue, hidden packages, taxi fares, in-car radio
+- **Mobile**: virtual joystick + action buttons, every screen (title, briefing, pause, game over) accepts a real tap, and **rotation is handled without reload** — turning the phone resizes the canvas and releases stuck touch input
+
+Play it: serve `game/` with any static server, then open `game/index.html`. No build step, no network request.
 
 ```sh
 node serve.ts   # then open http://localhost:8080
@@ -74,9 +83,9 @@ On touch devices: left stick to move, GAS / BRAKE to drive, ENTER / SHOOT / RADI
 
 Staged by an autopilot playing the real game rules forward from a fresh world (`game/src/shots.js`, `?shot=chase|play|heist|end&seed=19`) — the chase is the cover, so the first thing a judge sees is gameplay, not the title screen:
 
-1. `1-chase.jpg` — a 3-star police chase through Neon Downtown at night, in the rain
-2. `2-play.jpg` — the Harbor Lights smuggle drive along the docks in daylight
-3. `3-heist.jpg` — the Neon Reign gang turf shootout at night in Neon Downtown
+1. `1-chase.jpg` — a 4-star golden-hour police chase down the palm-lined boulevard into the low sun, helicopter overhead, roadblock + burning wreck ahead
+2. `2-play.jpg` — an on-foot over-shoulder shootout on the Sunset Pier approach at sunset, cop car ahead, hit marker lit
+3. `3-heist.jpg` — the Neon Reign gang turf shootout at sunset in Neon Downtown, one Viper car burning
 4. `4-end.jpg` — the Vice Coast Finale win screen at the Sunset Pier at sunset
 
 ## Tech

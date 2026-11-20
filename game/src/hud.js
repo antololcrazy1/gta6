@@ -180,7 +180,7 @@ export function createHUD(callbacks) {
     // city. The old code painted the sea and immediately overpainted it
     // with the identical sand rect, so no sea ever showed (B3).
     mctx.fillStyle = '#1b6f8e'; mctx.fillRect(0, 0, 12, mh);
-    mctx.fillStyle = '#e8c98f'; mctx.fillRect(12, 0, 300 * s - 12, mh);
+    mctx.fillStyle = '#e8c98f'; mctx.fillRect(12, 0, 950 * s - 12, mh); // v6.5: beach strip is 950 wide now
     mctx.fillStyle = '#33363d';
     // Roads stop at the map's south edge — the old code drew the vertical
     // roads the full 360px height, sticking ~100px below the city (B3).

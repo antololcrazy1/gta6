@@ -7,23 +7,24 @@
 import { pick } from './random.js';
 
 export const PHONE_JOBS = [
-  { id: 'courier', name: 'Courier', pay: 80, desc: 'Deliver a package in 60s', time: 60 },
+  { id: 'courier', name: 'Courier', pay: 80, desc: 'Deliver a package in 150s', time: 150 },
   { id: 'vigilante', name: 'Vigilante', pay: 120, desc: 'Take out 2 wanted cars', time: 0 },
-  { id: 'racer', name: 'Racer', pay: 150, desc: 'Hit 3 checkpoints in 45s', time: 45 },
+  { id: 'racer', name: 'Racer', pay: 150, desc: 'Hit 3 checkpoints in 150s', time: 150 },
 ];
 
+// v6.5: destinations scaled x3.1667 / y3.1731 for the 10x map.
 const COURIER_DESTS = [
-  { x: 320, y: 256, label: 'Northwest corner' },
-  { x: 3280, y: 256, label: 'Northeast corner' },
-  { x: 320, y: 1824, label: 'Southwest corner' },
-  { x: 3280, y: 1824, label: 'Southeast corner' },
-  { x: 1472, y: 768, label: 'Palm Row' },
-  { x: 2240, y: 1280, label: 'Midtown' },
+  { x: 1013, y: 812, label: 'Northwest corner' },
+  { x: 10387, y: 812, label: 'Northeast corner' },
+  { x: 1013, y: 5788, label: 'Southwest corner' },
+  { x: 10387, y: 5788, label: 'Southeast corner' },
+  { x: 4661, y: 2437, label: 'Palm Row' },
+  { x: 7093, y: 4062, label: 'Midtown' },
 ];
 const RACER_POINTS = [
-  { x: 320, y: 256 },
-  { x: 3280, y: 1024 },
-  { x: 704, y: 1792 },
+  { x: 1013, y: 812 },
+  { x: 10387, y: 3250 },
+  { x: 2229, y: 5687 },
 ];
 
 function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
@@ -41,13 +42,13 @@ export function createPhone(random) {
       // (the old code paid $80 for standing still — B7).
       const far = COURIER_DESTS.filter((d) => dist(state.player.x, state.player.y, d.x, d.y) >= 400);
       const dest = pick(rnd, far.length > 0 ? far : COURIER_DESTS);
-      job = { type: 'courier', pay: 80, timer: 60, target: { ...dest }, label: `Courier — deliver to ${dest.label}` };
+      job = { type: 'courier', pay: 80, timer: 150, target: { ...dest }, label: `Courier — deliver to ${dest.label}` };
     } else if (jobId === 'vigilante') {
       // v6.4: a 120 s clock — the old timer:0 meant the job could never fail
       // and blocked the phone forever if the player avoided all cops (B6).
       job = { type: 'vigilante', pay: 120, timer: 120, need: 2, done: 0, target: null, label: 'Vigilante — take out 2 wanted cars' };
     } else {
-      job = { type: 'racer', pay: 150, timer: 45, stage: 0, target: { ...RACER_POINTS[0] }, label: 'Racer — checkpoint 1/3' };
+      job = { type: 'racer', pay: 150, timer: 150, stage: 0, target: { ...RACER_POINTS[0] }, label: 'Racer — checkpoint 1/3' };
     }
     data.job = job; data.open = false;
     state.message = `Side job started: ${def.name} — ${def.desc}.`; state.messageTimer = 3;

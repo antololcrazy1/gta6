@@ -1,12 +1,12 @@
 // Vice Coast v5 — tuning numbers, colours and districts in one place.
-// The world is a 3600x2080 coastal city (v6.4: shrunk to 80% of the old
-// 3600x2600 area, and widened east-west relative to its height so the city
-// feels spacious, not a narrow corridor); the camera shows a 1280x720
-// window of it. v5 splits the city into four districts with their own
-// ground palettes, adds a day/night weather cycle, gang turf, a shop and
-// phone jobs.
+// The world is an 11400x6600 coastal city (v6.5: 10x the v6.4 map —
+// 3600x2080 was 7,488,000 sq units, this is 75,240,000, ~10.05x; scale
+// ~3.167x per side, beach + sunset kept on the west edge); the camera
+// shows a 1280x720 window of it. v5 splits the city into four districts
+// with their own ground palettes, adds a day/night weather cycle, gang
+// turf, a shop and phone jobs.
 export const VIEW = { width: 1280, height: 720 };
-export const WORLD = { width: 3600, height: 2080 };
+export const WORLD = { width: 11400, height: 6600 };
 export const STEP = 1 / 60;
 export const BEST_KEY = 'vice-coast.best-money';
 export const MISSIONS_KEY = 'vice-coast.missions-done';
@@ -24,41 +24,42 @@ export const HELI = { radius: 180, orbitSpeed: 0.55, rotorSpeed: 42, spotlight: 
 
 // Hidden packages: 10 golden parcels tucked beside landmarks across the city.
 // Finding one pays $50 and +2 respect; the HUD tracks n/10.
+// v6.5: v6.4 positions x3.1667 / y3.1731 for the 10x map.
 export const HIDDEN_PACKAGES = [
-  { x: 210, y: 944, label: 'Pier crates' },
-  { x: 704, y: 512, label: 'Palm Row bench' },
-  { x: 1088, y: 1536, label: 'Arcade alley' },
-  { x: 1472, y: 768, label: 'Hotel gardens' },
-  { x: 1856, y: 1280, label: 'Bank steps' },
-  { x: 2240, y: 512, label: 'Rooftop cafe' },
-  { x: 2624, y: 1792, label: 'Docks container' },
-  { x: 3008, y: 1024, label: 'East market' },
-  { x: 3392, y: 1536, label: 'Beach hut' },
-  { x: 704, y: 1792, label: 'Hideout stash' },
+  { x: 665, y: 2995, label: 'Pier crates' },
+  { x: 2229, y: 1625, label: 'Palm Row bench' },
+  { x: 3445, y: 4874, label: 'Arcade alley' },
+  { x: 4661, y: 2437, label: 'Hotel gardens' },
+  { x: 5877, y: 4062, label: 'Bank steps' },
+  { x: 7093, y: 1625, label: 'Rooftop cafe' },
+  { x: 8309, y: 5687, label: 'Docks container' },
+  { x: 9525, y: 3250, label: 'East market' },
+  { x: 10741, y: 4874, label: 'Beach hut' },
+  { x: 2229, y: 5687, label: 'Hideout stash' },
 ];
 
 // Night drops (mission 6, Vice Nights): one per city corner, collected in order.
 export const NIGHT_DROPS = [
-  { x: 320, y: 256 },
-  { x: 3280, y: 256 },
-  { x: 3280, y: 1824 },
-  { x: 320, y: 1824 },
+  { x: 1013, y: 812 },
+  { x: 10387, y: 812 },
+  { x: 10387, y: 5788 },
+  { x: 1013, y: 5788 },
 ];
 
 // Four districts: the west beach strip, the neon downtown in the north-east,
 // the container docks in the south-east, and the suburbs everywhere else.
 // districtAt() checks them in this order so the strips win over the suburbs.
 export const DISTRICTS = [
-  { name: 'Beach', x0: 0, y0: 0, x1: 300, y1: 2080, ground: '#c2ad7d', accent: '#1b6f8e' },
-  { name: 'Neon Downtown', x0: 2240, y0: 0, x1: 3600, y1: 1280, ground: '#6f6a72', accent: '#ff2fb3' },
-  { name: 'Coral Docks', x0: 2624, y0: 1280, x1: 3600, y1: 2080, ground: '#7d7468', accent: '#f1c40f' },
-  { name: 'Suburbs', x0: 300, y0: 0, x1: 3600, y1: 2080, ground: '#7a7f6a', accent: '#2ecc71' },
+  { name: 'Beach', x0: 0, y0: 0, x1: 950, y1: 6600, ground: '#c2ad7d', accent: '#1b6f8e' },
+  { name: 'Neon Downtown', x0: 7093, y0: 0, x1: 11400, y1: 4062, ground: '#6f6a72', accent: '#ff2fb3' },
+  { name: 'Coral Docks', x0: 8309, y0: 4062, x1: 11400, y1: 6600, ground: '#7d7468', accent: '#f1c40f' },
+  { name: 'Suburbs', x0: 950, y0: 0, x1: 11400, y1: 6600, ground: '#7a7f6a', accent: '#2ecc71' },
 ];
 
 export function districtAt(x, y) {
-  if (x < 300) return DISTRICTS[0];
-  if (x >= 2240 && y < 1280) return DISTRICTS[1];
-  if (x >= 2624 && y >= 1280) return DISTRICTS[2];
+  if (x < 950) return DISTRICTS[0];
+  if (x >= 7093 && y < 4062) return DISTRICTS[1];
+  if (x >= 8309 && y >= 4062) return DISTRICTS[2];
   return DISTRICTS[3];
 }
 
@@ -72,7 +73,7 @@ export const DAY_PHASES = [
 ];
 
 // Sunset Arms & Paint: the shop sits on the road beside the Neon Hotel.
-export const SHOP_POS = { x: 2624, y: 576, label: 'Sunset Arms & Paint' };
+export const SHOP_POS = { x: 8309, y: 1828, label: 'Sunset Arms & Paint' };
 // Six paint colours the shop cycles through for the player's current car.
 export const PAINTS = ['#e74c3c', '#f1c40f', '#3498db', '#2ecc71', '#9b59b6', '#ff6b9d'];
 

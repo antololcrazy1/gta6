@@ -1,4 +1,4 @@
-// Vice Coast rules v5: no drawing, no browser. A 3600x2080 coastal city in
+// Vice Coast rules v5: no drawing, no browser. An 11400x6600 coastal city in
 // four districts, traffic and pedestrians, stealable cars, wanted stars and
 // police, a 10-mission story, combat, pickups, money and respect — plus a
 // day/night weather cycle, a rival gang holding turf, a shop, phone side
@@ -23,8 +23,12 @@ export const EVENT_MISSION = 8;
 export const EVENT_WANTED = 16;
 export const EVENT_SHOT = 32;
 
-export const ROADS_V = [320, 704, 1088, 1472, 1856, 2240, 2624, 3008, 3392];
-export const ROADS_H = [256, 512, 768, 1024, 1280, 1536, 1792]; // v6.4: height x0.8, width kept 3600
+// Road grid: the v6.4 roads scaled x3.1667 / y3.1731 for the 10x map,
+// plus a midpoint road between each pair so the blocks stay city-sized
+// (~608 x ~406) instead of empty 1216 x 812 superblocks. 17 vertical,
+// 13 horizontal.
+export const ROADS_V = [1013, 1621, 2229, 2837, 3445, 4053, 4661, 5269, 5877, 6485, 7093, 7701, 8309, 8917, 9525, 10133, 10741];
+export const ROADS_H = [812, 1218, 1625, 2031, 2437, 2843, 3250, 3656, 4062, 4468, 4875, 5281, 5687];
 const CAR_COLORS = ['#e74c3c', '#f1c40f', '#3498db', '#ecf0f1', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#ff6b9d', '#7f8c8d'];
 const PED_COLORS = ['#ff9f43', '#48dbfb', '#1dd1a1', '#f368e0', '#ff6b6b', '#c8d64f', '#a29bfe', '#fd79a8'];
 const NAMES = ['Maya', 'Rico', 'Lena', 'Dario', 'Sofia', 'Marco', 'Nina', 'Tomas'];
@@ -44,35 +48,87 @@ export function createWorld(random) {
   const taxi = createTaxi(random);
 
   // ---- static city ----
+  // Varied buildings (v6.5): a real city, not a forest of identical
+  // towers. Houses, shophouses, towers, offices, hotels, warehouses, gas
+  // stations and restaurants — different heights, footprints, roof shapes
+  // (flat slab vs pitched pyramid) and shop signs. The mix depends on the
+  // district: towers/offices/hotels downtown, warehouses at the docks,
+  // houses/shops in the suburbs. Each block holds 2-4 buildings in a 2x2
+  // slot grid so the big 608x406 blocks read as built-up, not empty.
+  const BTYPES = {
+    house: { w: [90, 150], h: [80, 130], ht: [5, 8], roof: 'pit', sign: 0, colors: ['#e8c98f', '#d9a441', '#c96f4a', '#e07a5f', '#c9c9c9', '#b05b7a'] },
+    shophouse: { w: [110, 170], h: [100, 150], ht: [8, 13], roof: 'flat', sign: 0.55, colors: ['#c96f4a', '#d9a441', '#5b8fb0', '#6fae7a', '#e07a5f'] },
+    tower: { w: [140, 210], h: [120, 170], ht: [14, 26], roof: 'flat', sign: 0.15, colors: PALETTE.building },
+    office: { w: [150, 230], h: [130, 180], ht: [12, 20], roof: 'flat', sign: 0.3, colors: ['#7a6fae', '#5b8fb0', '#c9c9c9', '#6fae7a'] },
+    hotel: { w: [160, 240], h: [140, 200], ht: [16, 28], roof: 'flat', sign: 0.8, colors: ['#d9a441', '#e07a5f', '#b05b7a', '#c96f4a'] },
+    warehouse: { w: [200, 300], h: [150, 220], ht: [7, 10], roof: 'pit', sign: 0.1, colors: ['#8a7a6a', '#9a8a7a', '#7a6a5a', '#b0a090', '#6e6250'] },
+    gas: { w: [180, 240], h: [140, 180], ht: [5, 6], roof: 'flat', sign: 1, colors: ['#e74c3c', '#f1c40f', '#3498db'] },
+    restaurant: { w: [120, 180], h: [100, 150], ht: [6, 9], roof: 'flat', sign: 0.7, colors: ['#e07a5f', '#d9a441', '#b05b7a', '#c96f4a'] },
+  };
+  const SIGN_COLORS = ['#ffd76a', '#ff2fb3', '#48dbfb', '#ff5a3c', '#2ecc71'];
+  function pickType(districtName) {
+    const r = random();
+    if (districtName === 'Neon Downtown') return r < 0.45 ? 'tower' : r < 0.75 ? 'office' : r < 0.9 ? 'hotel' : 'shophouse';
+    if (districtName === 'Coral Docks') return r < 0.55 ? 'warehouse' : r < 0.8 ? 'shophouse' : r < 0.9 ? 'office' : 'restaurant';
+    return r < 0.45 ? 'house' : r < 0.75 ? 'shophouse' : r < 0.9 ? 'restaurant' : 'office';
+  }
+  function makeBuilding(t, type, x, y, w, h) {
+    return {
+      x, y, w, h, type,
+      height: range(random, t.ht[0], t.ht[1]),
+      color: pick(random, t.colors),
+      roof: pick(random, PALETTE.roof),
+      roofType: t.roof,
+      sign: random() < t.sign ? pick(random, SIGN_COLORS) : null,
+      seed: random(),
+    };
+  }
   const buildings = []; const parks = []; const trees = [];
   for (let i = 0; i < ROADS_V.length - 1; i += 1) {
     for (let j = 0; j < ROADS_H.length - 1; j += 1) {
       const x0 = ROADS_V[i] + 52, x1 = ROADS_V[i + 1] - 52;
       const y0 = ROADS_H[j] + 52, y1 = ROADS_H[j + 1] - 52;
-      if (x0 < 300) continue; // beach strip
+      if (x0 < 950) continue; // beach strip
       if ((i * 7 + j * 3) % 5 === 0) {
         parks.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
         for (let t = 0; t < 7; t += 1) trees.push({ x: range(random, x0 + 20, x1 - 20), y: range(random, y0 + 20, y1 - 20), r: range(random, 10, 18) });
         continue;
       }
-      const ci = Math.floor(random() * PALETTE.building.length);
-      buildings.push({ x: x0 + range(random, 0, 40), y: y0 + range(random, 0, 30), w: range(random, 130, 210), h: range(random, 110, 170), color: PALETTE.building[ci], roof: PALETTE.roof[ci], seed: random() });
-      if (random() < 0.5) buildings.push({ x: x1 - range(random, 150, 210), y: y1 - range(random, 130, 170), w: range(random, 110, 170), h: range(random, 100, 150), color: pick(random, PALETTE.building), roof: pick(random, PALETTE.roof), seed: random() });
+      // One block in ~29 is a gas station: a single low building + sign.
+      if ((i * 5 + j * 11) % 29 === 0) {
+        buildings.push(makeBuilding(BTYPES.gas, 'gas', x0 + (x1 - x0 - 210) / 2, y0 + (y1 - y0 - 160) / 2, 210, 160));
+        continue;
+      }
+      // 2x2 slots; each slot gets a building ~65% of the time.
+      const districtName = districtAt((x0 + x1) / 2, (y0 + y1) / 2).name;
+      const sw = (x1 - x0) / 2, sh = (y1 - y0) / 2;
+      for (let sx = 0; sx < 2; sx += 1) {
+        for (let sy = 0; sy < 2; sy += 1) {
+          if (random() > 0.65) continue;
+          const type = pickType(districtName);
+          const t = BTYPES[type];
+          const bw = range(random, t.w[0], Math.min(t.w[1], sw - 20));
+          const bh = range(random, t.h[0], Math.min(t.h[1], sh - 20));
+          const bx = x0 + sx * sw + range(random, 8, Math.max(9, sw - bw - 8));
+          const by = y0 + sy * sh + range(random, 8, Math.max(9, sh - bh - 8));
+          buildings.push(makeBuilding(t, type, bx, by, bw, bh));
+        }
+      }
     }
   }
   const landmarks = {
-    pier: { x: 210, y: 1024, label: 'Sunset Pier' },
-    boat: { x: 110, y: 1024, label: 'Pier boat' },
-    hotel: { x: 2624, y: 512, label: 'Neon Hotel' },
-    docks: { x: 3300, y: 1792, label: 'Coral Docks' },
-    arcade: { x: 1088, y: 768, label: 'Pixel Arcade' },
-    hideout: { x: 704, y: 1792, label: 'Hideout' },
-    bank: { x: 1856, y: 1024, label: 'Coral Bank' },
-    packages: [{ x: 1472, y: 512 }, { x: 2240, y: 1280 }, { x: 3008, y: 768 }],
+    pier: { x: 665, y: 3250, label: 'Sunset Pier' },
+    boat: { x: 348, y: 3250, label: 'Pier boat' },
+    hotel: { x: 8309, y: 1625, label: 'Neon Hotel' },
+    docks: { x: 10450, y: 5687, label: 'Coral Docks' },
+    arcade: { x: 3445, y: 2437, label: 'Pixel Arcade' },
+    hideout: { x: 2229, y: 5687, label: 'Hideout' },
+    bank: { x: 5877, y: 3250, label: 'Coral Bank' },
+    packages: [{ x: 4661, y: 1625 }, { x: 7093, y: 4062 }, { x: 9525, y: 2437 }],
   };
 
   // ---- dynamic state ----
-  const player = { x: 320, y: 1024, angle: 0, health: PLAYER.health, armor: 0, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0 };
+  const player = { x: 1013, y: 3250, angle: 0, health: PLAYER.health, armor: 0, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0 };
   const cars = []; const peds = []; const cops = []; const bullets = []; const pickups = []; const particles = [];
   const gangCars = [];
   const state = {
@@ -178,7 +234,7 @@ export function createWorld(random) {
     // land in a different order each city.
     const kinds = shuffle(random, ['cash', 'cash', 'health', 'ammo', 'cash', 'repair', 'health', 'ammo', 'cash', 'cash', 'health', 'repair', 'ammo', 'cash']);
     for (const kind of kinds) {
-      pickups.push({ x: range(random, 320, WORLD.width - 80), y: range(random, 120, WORLD.height - 80), kind, active: true, bob: range(random, 0, 6) });
+      pickups.push({ x: range(random, 950, WORLD.width - 80), y: range(random, 120, WORLD.height - 80), kind, active: true, bob: range(random, 0, 6) });
     }
     // Hidden packages: fixed landmark spots, same every run.
     for (const spot of HIDDEN_PACKAGES) {
@@ -206,7 +262,7 @@ export function createWorld(random) {
   }
 
   function reset() {
-    player.x = 320; player.y = 1024; player.angle = 0; player.health = PLAYER.health; player.armor = 0; player.ammo = 30;
+    player.x = 1013; player.y = 3250; player.angle = 0; player.health = PLAYER.health; player.armor = 0; player.ammo = 30;
     player.inCar = false; player.carId = -1; player.invuln = 0; player.speed = 0;
     bullets.length = 0; particles.length = 0; cops.length = 0;
     state.money = 0; state.respect = 0; state.wanted = 0; state.wantedTimer = 0; state.crimeTimer = 99;
@@ -360,14 +416,26 @@ export function createWorld(random) {
   function placeCarNearPlayer(c) {
     for (let tries = 0; tries < 6; tries += 1) {
       const vertical = random() < 0.5;
-      const road = vertical ? pick(random, ROADS_V) : pick(random, ROADS_H);
+      // Pick a road NEAR the player, not any road on the map: on the 10x
+      // map a random road is almost always thousands of units away, so the
+      // old "any road" pick landed the car far from the player ~90% of the
+      // time (measured: only 10.3% of placements within 450) and the
+      // streets around the player stayed empty (density probe: 5 cars,
+      // not 8). Falls back to any road where no road is near (e.g. deep
+      // on the beach).
+      const nearV = ROADS_V.filter((r) => Math.abs(r - player.x) < 450);
+      const nearH = ROADS_H.filter((r) => Math.abs(r - player.y) < 450);
+      const road = vertical
+        ? (nearV.length ? pick(random, nearV) : pick(random, ROADS_V))
+        : (nearH.length ? pick(random, nearH) : pick(random, ROADS_H));
       const a = range(random, 0, Math.PI * 2);
       const r = range(random, 150, 400);
-      const x = clamp(player.x + Math.cos(a) * r, 320, WORLD.width - 100);
+      const x = clamp(player.x + Math.cos(a) * r, 950, WORLD.width - 100);
       const y = clamp(player.y + Math.sin(a) * r, 100, WORLD.height - 100);
       const nx = vertical ? road + (random() < 0.5 ? -18 : 18) : x;
       const ny = vertical ? y : road + (random() < 0.5 ? -18 : 18);
       if (dist(nx, ny, player.x, player.y) < 90) continue;
+      if (dist(nx, ny, player.x, player.y) > 450) continue; // must actually land near the player
       if (cars.some((o) => o !== c && dist(nx, ny, o.x, o.y) < 70)) continue;
       c.x = nx; c.y = ny; c.vertical = vertical; c.road = road;
       c.angle = vertical ? (random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : (random() < 0.5 ? 0 : Math.PI);
@@ -417,7 +485,7 @@ export function createWorld(random) {
       if (c.health <= 0) { c.speed = 0; continue; }
       const stepLen = c.speed * dt;
       if (c.vertical) { c.y += (c.angle > 0 ? 1 : -1) * stepLen; if (c.y < 80) c.y = WORLD.height - 80; if (c.y > WORLD.height - 80) c.y = 80; }
-      else { c.x += (Math.cos(c.angle) > 0 ? 1 : -1) * stepLen; if (c.x < 300) c.x = WORLD.width - 80; if (c.x > WORLD.width - 80) c.x = 300; }
+      else { c.x += (Math.cos(c.angle) > 0 ? 1 : -1) * stepLen; if (c.x < 950) c.x = WORLD.width - 80; if (c.x > WORLD.width - 80) c.x = 950; }
       // Slow for a car ahead on the same road.
       for (const o of cars) {
         if (o === c || !o.traffic) continue;
@@ -471,9 +539,9 @@ export function createWorld(random) {
     let carCops = cops.filter((c) => c.inCar).length;
     while (carCops < wantCars) {
       const road = pick(random, ROADS_V);
-      const car = { id: nextCopId, x: clamp(player.x + range(random, -500, 500), 320, WORLD.width - 100), y: clamp(player.y + range(random, -400, 400), 100, WORLD.height - 100), angle: 0, speed: 0, health: 120, color: '#2f6fd0', traffic: false, cop: true, parked: false, vertical: false, road, honk: 0 };
+      const car = { id: nextCopId, x: clamp(player.x + range(random, -500, 500), 950, WORLD.width - 100), y: clamp(player.y + range(random, -400, 400), 100, WORLD.height - 100), angle: 0, speed: 0, health: 120, color: '#2f6fd0', traffic: false, cop: true, parked: false, vertical: false, road, honk: 0 };
       nextCopId += 1;
-      car.y = pick(random, ROADS_H); car.x = clamp(player.x + (random() < 0.5 ? -420 : 420), 320, WORLD.width - 100);
+      car.y = pick(random, ROADS_H); car.x = clamp(player.x + (random() < 0.5 ? -420 : 420), 950, WORLD.width - 100);
       cars.push(car); cops.push({ x: car.x, y: car.y, inCar: true, car, health: 100, dead: false, arrestT: 0 });
       carCops += 1;
     }
@@ -691,8 +759,8 @@ export function createWorld(random) {
     }
     if (harmless) {
       // Title backdrop: the city lives, nothing can hurt the player.
-      state.camera.x = clamp(700 + Math.sin(state.elapsed * 0.05) * 500 - VIEW.width / 2, 0, WORLD.width - VIEW.width);
-      state.camera.y = clamp(1024 - VIEW.height / 2, 0, WORLD.height - VIEW.height);
+      state.camera.x = clamp(2217 + Math.sin(state.elapsed * 0.05) * 1583 - VIEW.width / 2, 0, WORLD.width - VIEW.width);
+      state.camera.y = clamp(3250 - VIEW.height / 2, 0, WORLD.height - VIEW.height);
       return 0;
     }
     if (state.over) return EVENT_OVER;
@@ -733,6 +801,6 @@ export function createWorld(random) {
     weather, gang, shop, phone,
     // Staging helpers used by shots.js / tests: real code paths, not shortcuts.
     debugWin() { state.money = 9850; state.missionsDone = 10; state.missionIndex = 10; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },
-    debugChase() { player.x = 2624; player.y = 768; addWanted(3, true); },
+    debugChase() { player.x = 8309; player.y = 2437; addWanted(3, true); },
   };
 }

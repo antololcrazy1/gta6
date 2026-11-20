@@ -40,7 +40,7 @@ function putPlayerInCar(world, x, y, angle) {
 // Move them to a side road before the shot.
 function clearParkedNear(st, x, y, r) {
   for (const c of st.cars) {
-    if (c.parked && Math.hypot(c.x - x, c.y - y) < r) { c.x = 1856; c.y = 1792 + (c.id % 6) * 30; }
+    if (c.parked && Math.hypot(c.x - x, c.y - y) < r) { c.x = 5877; c.y = 5687 + (c.id % 6) * 30; }
   }
 }
 
@@ -70,13 +70,14 @@ export function stageShot(name, world) {
     // Golden-hour beach-boulevard chase, driving WEST into the low sun:
     // 4 stars, heli overhead with spotlight, cop cars in pursuit, a
     // roadblock ahead and a wrecked car burning in the frame. Start far
-    // east (x=3400) so 6 s at full speed still leaves the car mid-city.
+    // east (x=4500) so the 6 s drive ends near the beach (x~2100) with the
+    // sunset ahead, not deep in the downtown tower canyon.
     world.weather.force('sunset', false);
-    putPlayerInCar(world, 3400, 768, Math.PI);
-    clearParkedNear(st, 3400, 768, 900);
+    putPlayerInCar(world, 4500, 2437, Math.PI);
+    clearParkedNear(st, 4500, 2437, 900);
     world.startMission(5); // Vice Nights: 4 stars, heli already up.
     for (let i = 0; i < 6 / STEP; i += 1) {
-      const ev = world.step(STEP, drivePilot(st, 768, -1), false);
+      const ev = world.step(STEP, drivePilot(st, 2437, -1), false);
       if (ev & EVENT_OVER) break;
       const car = st.cars.find((c) => c.id === st.player.carId);
       if (car) { car.speed = Math.max(car.speed, 400); car.health = 100; }
@@ -102,13 +103,13 @@ export function stageShot(name, world) {
       // the render cull distance and the road read empty.
       const traffic = st.cars.filter((c) => !c.cop && c.id !== pc.id && c.traffic).slice(0, 6);
       traffic.forEach((c, i) => {
-        c.x = pc.x - 70 - i * 48; c.y = 768 + (i % 2 === 0 ? -18 : 18);
+        c.x = pc.x - 70 - i * 48; c.y = 2437 + (i % 2 === 0 ? -18 : 18);
         c.angle = i % 2 === 0 ? Math.PI : 0; c.speed = 140;
       });
       // Two cop cars tight on the player's tail, light bars flashing.
       const tail = cops.slice(0, 2);
       tail.forEach((cop, i) => {
-        cop.car.x = pc.x + 85; cop.car.y = 768 + (i === 0 ? -22 : 22);
+        cop.car.x = pc.x + 85; cop.car.y = 2437 + (i === 0 ? -22 : 22);
         cop.car.angle = Math.PI; cop.car.speed = 380;
         cop.x = cop.car.x; cop.y = cop.car.y;
       });
@@ -123,12 +124,12 @@ export function stageShot(name, world) {
         t.cop = true; t.traffic = false; t.color = '#2f6fd0'; blockers.push(t);
       }
       blockers.forEach((car, i) => {
-        car.x = pc.x - 340; car.y = 768 - 24 + i * 24;
+        car.x = pc.x - 340; car.y = 2437 - 24 + i * 24;
         car.angle = Math.PI / 2 + (i === 1 ? 0.15 : -0.15); car.speed = 0;
       });
       // A wrecked traffic car burning just before the roadblock.
-      const wreck = st.cars.find((c) => !c.cop && c.id !== pc.id && Math.abs(c.y - 768) < 200 && !traffic.includes(c));
-      if (wreck) { wreck.x = pc.x - 295; wreck.y = 768 + 26; wreck.health = 5; fireball(st, wreck.x, wreck.y); }
+      const wreck = st.cars.find((c) => !c.cop && c.id !== pc.id && Math.abs(c.y - 2437) < 200 && !traffic.includes(c));
+      if (wreck) { wreck.x = pc.x - 295; wreck.y = 2437 + 26; wreck.health = 5; fireball(st, wreck.x, wreck.y); }
       // Corridor sweep: any other car loitering within 200 units of the
       // player (e.g. a white traffic car between the chase camera and the
       // player car — v6.1's chase had one looming in the frame) is moved
@@ -137,7 +138,7 @@ export function stageShot(name, world) {
       for (const c of st.cars) {
         if (staged.has(c.id) || c.cop) continue;
         if (Math.hypot(c.x - st.player.x, c.y - st.player.y) < 200) {
-          c.x = 3200; c.y = 1792 + (c.id % 6) * 30; c.angle = 0; c.speed = 0;
+          c.x = 10133; c.y = 5687 + (c.id % 6) * 30; c.angle = 0; c.speed = 0;
         }
       }
     }
@@ -150,10 +151,18 @@ export function stageShot(name, world) {
   // finale frame is beach + sunset, not a city street. Slight angle so the
   // camera sees a 3/4 rear view (orange flank, not a flat black cabin).
   world.weather.force('sunset', false);
-  putPlayerInCar(world, 320, 1024, Math.PI - 0.35);
+  putPlayerInCar(world, 780, 3250, Math.PI - 0.35);
   st.money = 9850; st.respect = 150;
   world.debugWin();
   for (let i = 0; i < 2 / STEP; i += 1) world.step(STEP, { move: { x: 0, y: 0 } }, true);
+  // Beachgoers near the pier so the win frame is a beach scene, not empty
+  // sand. West of the car (toward the pier), clear of the chase camera,
+  // which sits ~44 units EAST of the car — a ped there fills the frame
+  // with a giant head (v6.5's first end shot had exactly that).
+  st.peds.slice(0, 6).forEach((ped, i) => {
+    if (!ped.alive) return;
+    ped.x = 620 + (i % 3) * 55; ped.y = 3140 + Math.floor(i / 3) * 110;
+  });
   return { screen: 'win', best: st.money };
 }
 
@@ -169,11 +178,11 @@ export function stagePlayShot(world) {
   world.weather.force('sunset', false);
   world.startMission(6); // Sunset Showdown: 5 stars, pier escape, 75 s clock.
   st.wanted = 2; // staged at 2 stars so the frame stays a shootout, not a bust.
-  st.player.x = 560; st.player.y = 1024; st.player.angle = Math.PI;
+  st.player.x = 1773; st.player.y = 3250; st.player.angle = Math.PI;
   st.player.inCar = false; st.player.carId = -1;
   st.player.ammo = 60; st.player.health = 100; st.player.armor = 50;
   st.money = 3150; st.respect = 80;
-  clearParkedNear(st, 560, 1024, 260);
+  clearParkedNear(st, 1773, 3250, 260);
   // Let the cops close in for ~2 s so they are in the frame ahead.
   for (let i = 0; i < 2 / STEP; i += 1) {
     const ev = world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: Math.PI, enter: false }, false);
@@ -186,12 +195,12 @@ export function stagePlayShot(world) {
   st.cops.forEach((cop, i) => {
     if (!cop.inCar && Math.hypot(cop.x - st.player.x, cop.y - st.player.y) < 90) {
       cop.x = st.player.x - 130 + (i % 3) * 45;
-      cop.y = st.player.y + (i % 2 === 0 ? -75 : 75);
+      cop.y = st.player.y + (i % 2 === 0 ? -40 : 40);
     }
   });
   st.peds.forEach((ped) => {
     if (ped.alive && Math.hypot(ped.x - st.player.x, ped.y - st.player.y) < 30) {
-      ped.x = st.player.x - 60; ped.y = st.player.y + 80;
+      ped.x = st.player.x - 60; ped.y = st.player.y + 40;
     }
   });
   // Line the nearest cop car up ahead of the player (west, toward the
@@ -234,7 +243,7 @@ export function stageHeistShot(world) {
   // brighter now too, for live play). Real rules all the way:
   // startMission(8) sets the turf beacon and spawns 3 Viper cars, the gang
   // closes in for a drive-by, and shoot() fires real bullets with muzzle
-  // particles. The player holds the turf marker at (2624, 768); one Viper
+  // particles. The player holds the turf marker at (8309, 2437); one Viper
   // car burns in the frame.
   world.reset();
   const st = world.state;
@@ -242,7 +251,7 @@ export function stageHeistShot(world) {
   world.startMission(8); // Neon Reign, stage 0: "Torch 3 gang cars".
   // Hold the turf from just off the beacon: standing on the marker puts
   // the camera inside the beacon pillar and washes the frame yellow.
-  st.player.x = 2654; st.player.y = 768; st.player.angle = 0;
+  st.player.x = 8405; st.player.y = 2437; st.player.angle = 0;
   st.player.inCar = false; st.player.carId = -1;
   st.player.ammo = 60; st.player.health = 100; st.player.armor = 50;
   st.money = 7150; st.respect = 160;
@@ -256,8 +265,8 @@ export function stageHeistShot(world) {
   // them in a full circle, so one sat right next to the camera and filled
   // the frame as a pink slab. All of them stay ahead of the aim line now.
   gangCars.forEach((c, i) => {
-    const a = -0.9 + (i / Math.max(1, gangCars.length - 1)) * 1.8;
-    c.x = st.player.x + Math.cos(a) * 140; c.y = st.player.y + Math.sin(a) * 140;
+    c.x = st.player.x + 110 + i * 45; c.y = 2437 + (i % 2 === 0 ? -18 : 18);
+    c.angle = Math.PI; c.speed = 0;
   });
   const target = st.gangCars.find((c) => c.health > 0);
   let aimAngle = 0;
@@ -277,7 +286,7 @@ export function stageHeistShot(world) {
   st.peds.forEach((ped, i) => {
     if (ped.alive && Math.hypot(ped.x - st.player.x, ped.y - st.player.y) < 120) {
       ped.x = st.player.x + 70 + (i % 3) * 30;
-      ped.y = st.player.y + (i % 2 === 0 ? -70 : 70);
+      ped.y = st.player.y + (i % 2 === 0 ? -40 : 40);
     }
   });
   // Let the muzzle burst + fireball ring disperse before the frame is

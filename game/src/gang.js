@@ -9,12 +9,13 @@ import { WORLD } from './config.js';
 
 // Three turf districts: Neon Downtown (mission 9's turf), the Coral Docks
 // and Southside. Each holds at least one gang car at all times.
-// v6.4: y x0.8 with the resize (960 -> 768, 2240 -> 1792); radii kept —
-// they are gameplay distances, not map positions.
+// v6.5: positions scaled x3.1667 / y3.1731 for the 10x map; radii x1.5
+// (340 -> 510, 300 -> 450) so the turf zones still read as districts on
+// the bigger map instead of shrinking to a street corner.
 export const GANG_TURF = [
-  { x: 2624, y: 768, r: 340, name: 'Neon Downtown' },
-  { x: 3200, y: 1792, r: 300, name: 'Coral Docks' },
-  { x: 1472, y: 1792, r: 300, name: 'Southside' },
+  { x: 8309, y: 2437, r: 510, name: 'Neon Downtown' },
+  { x: 10133, y: 5687, r: 450, name: 'Coral Docks' },
+  { x: 4661, y: 5687, r: 450, name: 'Southside' },
 ];
 const GANG_PAINTS = ['#7b2fbe', '#8e44ad', '#6c3483', '#9b59b6'];
 const GANG_HEALTH = 60;
@@ -39,7 +40,7 @@ export function createGang(random) {
     const id = nextId; nextId += 1;
     const car = {
       id,
-      x: clamp(turf.x + Math.cos(a) * turf.r * 0.5, 320, 3560),
+      x: clamp(turf.x + Math.cos(a) * turf.r * 0.5, 950, WORLD.width - 40),
       y: clamp(turf.y + Math.sin(a) * turf.r * 0.5, 80, WORLD.height - 40),
       angle: rnd() * Math.PI * 2, speed: 0, health: GANG_HEALTH,
       color: pick(rnd, GANG_PAINTS), gang: true, turf: turfIdx,
@@ -106,7 +107,7 @@ export function createGang(random) {
         }
       } else if (car.retarget <= 0 || dist(car.x, car.y, car.patrolX, car.patrolY) < 60) {
         const a = rnd() * Math.PI * 2, r = rnd() * turf.r * 0.7;
-        car.patrolX = clamp(turf.x + Math.cos(a) * r, 320, 3560);
+        car.patrolX = clamp(turf.x + Math.cos(a) * r, 950, WORLD.width - 40);
         car.patrolY = clamp(turf.y + Math.sin(a) * r, 80, WORLD.height - 40);
         car.retarget = range(rnd, 4, 9);
       }
@@ -119,7 +120,7 @@ export function createGang(random) {
       const nx = car.x + Math.cos(car.angle) * car.speed * dt;
       const ny = car.y + Math.sin(car.angle) * car.speed * dt;
       if (ctx && ctx.collide && ctx.collide(nx, ny, 26).hit) { car.angle += 0.9; car.speed *= 0.6; }
-      else { car.x = clamp(nx, 150, 3580); car.y = clamp(ny, 48, WORLD.height - 20); }
+      else { car.x = clamp(nx, 150, WORLD.width - 20); car.y = clamp(ny, 48, WORLD.height - 20); }
     }
   }
   function debug(state) {

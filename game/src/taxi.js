@@ -6,21 +6,22 @@
 import { pick } from './random.js';
 
 // 9 fixed road intersections spread across the city (ROADS_V x ROADS_H).
+// v6.5: destinations scaled x3.1667 / y3.1731 for the 10x map.
 const DESTINATIONS = [
-  { x: 320, y: 256, label: 'Northwest corner' },
-  { x: 3280, y: 256, label: 'Northeast corner' },
-  { x: 320, y: 1824, label: 'Southwest corner' },
-  { x: 3280, y: 1824, label: 'Southeast corner' },
-  { x: 1472, y: 768, label: 'Palm Row' },
-  { x: 2240, y: 1280, label: 'Midtown' },
-  { x: 1088, y: 1536, label: 'Arcade district' },
-  { x: 2624, y: 512, label: 'Neon Hotel' },
-  { x: 704, y: 768, label: 'Palm Row west' },
+  { x: 1013, y: 812, label: 'Northwest corner' },
+  { x: 10387, y: 812, label: 'Northeast corner' },
+  { x: 1013, y: 5788, label: 'Southwest corner' },
+  { x: 10387, y: 5788, label: 'Southeast corner' },
+  { x: 4661, y: 2437, label: 'Palm Row' },
+  { x: 7093, y: 4062, label: 'Midtown' },
+  { x: 3445, y: 4874, label: 'Arcade district' },
+  { x: 8309, y: 1625, label: 'Neon Hotel' },
+  { x: 2229, y: 2437, label: 'Palm Row west' },
 ];
 const PAYS = [40, 50, 60, 80];
 const PICKUP_DIST = 70;
 const DELIVERY_DIST = 90;
-const FARE_TIME = 45;
+const FARE_TIME = 150; // v6.5: cross-map fares need the longer clock
 
 function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
 

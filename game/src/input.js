@@ -19,6 +19,8 @@ export const ACTION_SLOT1 = 256;
 export const ACTION_SLOT2 = 512;
 export const ACTION_SLOT3 = 1024;
 export const ACTION_CONTINUE = 2048;
+export const ACTION_WEAPON = 4096;
+export const ACTION_SLOT4 = 8192;
 
 export const IS_TOUCH = typeof window !== 'undefined' && ('ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0));
 export const TOUCH_HINT = 'Touch: left stick to move • GAS / BRAKE to drive • SHOOT / ENTER on the right';
@@ -44,16 +46,22 @@ function makeButton(label, right, bottom, onDown, onUp) {
 }
 
 export function createInput(canvas) {
-  const held = { up: false, down: false, left: false, right: false, sprint: false };
+  const held = { up: false, down: false, left: false, right: false, sprint: false, handbrake: false };
   let actions = 0;
   const mouse = { x: 0, y: 0, down: false, aiming: false };
-  const touch = { active: false, move: { x: 0, y: 0 }, gas: false, brake: false, shooting: false, elements: null, camYaw: 0, camDragging: false };
+  const touch = { active: false, move: { x: 0, y: 0 }, gas: false, brake: false, shooting: false, boost: false, handbrake: false, elements: null, camYaw: 0, camDragging: false };
   let knobEl = null;
   // Touch camera drag: the pointer being tracked + its last x.
   let camId = null, camLastX = 0;
   // Driving-mode buttons (toggled by setInCar): GAS/BRK only make sense in
   // a car, SHOOT only on foot. Kept here so setInCar can flip them.
   let gasBtn = null, brakeBtn = null, shootBtn = null;
+  // Phase 3: BOOST (nitro) takes SHOOT's slot while driving; HBRK is the
+  // handbrake. Both are car-only.
+  let boostBtn = null, hbrkBtn = null;
+  // Whether the player is in a car (set by setInCar): Space becomes the
+  // handbrake instead of confirm/enter while driving.
+  let inCarMode = false;
   // v6.4: a USE button (opens the shop when near it — the shop had no touch
   // equivalent for the E key) and a PAUSE button (pause had no touch
   // equivalent for Esc). Positions depend on orientation: portrait has
@@ -76,14 +84,17 @@ export function createInput(canvas) {
     useBtn.style.display = v ? 'flex' : 'none';
   }
   function setInCar(inCar) {
+    inCarMode = inCar;
     if (!gasBtn) return;
     gasBtn.style.display = inCar ? 'flex' : 'none';
     brakeBtn.style.display = inCar ? 'flex' : 'none';
     shootBtn.style.display = inCar ? 'none' : 'flex';
+    if (boostBtn) boostBtn.style.display = inCar ? 'flex' : 'none';
+    if (hbrkBtn) hbrkBtn.style.display = inCar ? 'flex' : 'none';
     // A button hidden mid-press never fires pointerup: drop the held state
     // of the buttons that just disappeared, or the car/player drives itself.
     if (inCar) touch.shooting = false;
-    else { touch.gas = false; touch.brake = false; }
+    else { touch.gas = false; touch.brake = false; touch.boost = false; touch.handbrake = false; }
   }
 
   function queue(action) { actions |= action; }
@@ -93,6 +104,7 @@ export function createInput(canvas) {
     for (const k of Object.keys(held)) held[k] = false;
     touch.move.x = 0; touch.move.y = 0; touch.active = false;
     touch.gas = false; touch.brake = false; touch.shooting = false;
+    touch.boost = false; touch.handbrake = false;
     touch.camYaw = 0; touch.camDragging = false; camId = null;
     mouse.down = false; mouse.aiming = false;
     if (knobEl) { knobEl.style.left = '40px'; knobEl.style.top = '40px'; }
@@ -103,7 +115,12 @@ export function createInput(canvas) {
     const dir = KEYMAP[event.code];
     if (dir) { held[dir] = true; event.preventDefault(); return; }
     if (event.repeat) return;
-    if (event.code === 'Space' || event.code === 'Enter') actions |= ACTION_CONFIRM | ACTION_ENTER;
+    if (event.code === 'Space') {
+      // In a car Space is the handbrake, not confirm/enter — F is
+      // enter/exit now, so Space is free while driving.
+      if (inCarMode) held.handbrake = true;
+      else actions |= ACTION_CONFIRM | ACTION_ENTER;
+    } else if (event.code === 'Enter') actions |= ACTION_CONFIRM | ACTION_ENTER;
     else if (event.code === 'KeyF') actions |= ACTION_ENTER;
     else if (event.code === 'KeyE') actions |= ACTION_INTERACT;
     else if (event.code === 'KeyJ') actions |= ACTION_SHOOT;
@@ -116,12 +133,15 @@ export function createInput(canvas) {
     else if (event.code === 'Digit1') actions |= ACTION_SLOT1;
     else if (event.code === 'Digit2') actions |= ACTION_SLOT2;
     else if (event.code === 'Digit3') actions |= ACTION_SLOT3;
+    else if (event.code === 'Digit4') actions |= ACTION_SLOT4;
+    else if (event.code === 'KeyV') actions |= ACTION_WEAPON;
     else return;
     event.preventDefault();
   });
   window.addEventListener('keyup', (event) => {
     const dir = KEYMAP[event.code];
     if (dir) held[dir] = false;
+    if (event.code === 'Space') held.handbrake = false;
   });
   window.addEventListener('blur', releaseAll);
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
@@ -208,14 +228,19 @@ export function createInput(canvas) {
     const phone = makeButton('PHONE', 188, 120, () => queue(ACTION_PHONE));
     const use = makeButton('USE', 24, 288, () => queue(ACTION_INTERACT));
     const pause = makeButton('PAUSE', 188, 204, () => queue(ACTION_PAUSE));
+    // Phase 3: BOOST takes SHOOT's slot (24,204) while driving; HBRK sits
+    // in the free slot next to it. Both are car-only (see setInCar).
+    const boost = makeButton('BOOST', 24, 204, () => { touch.boost = true; }, () => { touch.boost = false; });
+    const hbrk = makeButton('HBRK', 104, 204, () => { touch.handbrake = true; }, () => { touch.handbrake = false; });
     gasBtn = gas; brakeBtn = brake; shootBtn = shoot;
+    boostBtn = boost; hbrkBtn = hbrk;
     useBtn = use; pauseBtn = pause;
     // USE only shows near the shop (main loop toggles it); PAUSE is always on.
     use.style.display = 'none';
     // On foot by default: GAS/BRK hidden until the player enters a car.
     setInCar(false);
     layoutTouchButtons();
-    for (const b of [gas, brake, enter, shoot, radio, phone, use, pause]) root.appendChild(b);
+    for (const b of [gas, brake, enter, shoot, radio, phone, use, pause, boost, hbrk]) root.appendChild(b);
     document.body.appendChild(root);
     touch.elements = root;
   }

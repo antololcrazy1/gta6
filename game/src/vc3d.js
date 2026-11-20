@@ -7,7 +7,7 @@
 // Map (x, y) -> (x*S - W/2, 0, y*S - H/2); world angle a -> rotation.y = -a.
 import * as THREE from '../vendor/three.module.js';
 import { WORLD, PALETTE, CAR } from './config.js';
-import { ROADS_V, ROADS_H } from './world.js';
+import { ROADS_V, ROADS_H, RACE_START } from './world.js';
 
 const S = 0.12;
 const CX = (WORLD.width * S) / 2;
@@ -714,6 +714,28 @@ export function createRenderer3D(canvas) {
   diamond.position.y = 6; beacon.add(diamond);
   beacon.visible = false; scene.add(beacon);
 
+  // Street-race start (Phase 3): a checkered flag on a pole at the pier,
+  // visible once the finale is done. The flag waves slightly with time.
+  const raceFlag = new THREE.Group();
+  const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 7, 8), new THREE.MeshBasicMaterial({ color: 0xdddddd }));
+  flagPole.position.y = 3.5; raceFlag.add(flagPole);
+  const flagCloth = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.6),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+  flagCloth.position.set(1.4, 6.2, 0); raceFlag.add(flagCloth);
+  const checkerMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
+  for (let i = 0; i < 4; i += 1) for (let j = 0; j < 3; j += 1) {
+    if ((i + j) % 2 === 0) continue;
+    const sq = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.53), checkerMat);
+    sq.position.set(0.425 + i * 0.65, 5.665 + j * 0.53, 0.01); raceFlag.add(sq);
+  }
+  raceFlag.visible = false; scene.add(raceFlag);
+
+  // Repo job (Phase 3): a gold ground ring under the marked car, so the
+  // player can spot the steal target from the chase cam.
+  const repoRing = new THREE.Mesh(new THREE.RingGeometry(2.2, 2.8, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+  repoRing.rotation.x = -Math.PI / 2; repoRing.visible = false; scene.add(repoRing);
+
   // Pickups: small glowing diamonds, gold for hidden packages. Each one
   // carries a flat ground ring in the same colour, so the floating diamond
   // reads as a marked pickup spot instead of a stray diamond hovering in
@@ -955,6 +977,22 @@ export function createRenderer3D(canvas) {
       if (m.userData.ring) m.userData.ring.material.color.copy(m.material.color);
     }
     for (; pi < pickupPool.length; pi += 1) pickupPool[pi].visible = false;
+
+    // ---- race flag + repo ring (Phase 3) ----
+    if (st.raceAvailable && !st.race && screen === 'play') {
+      raceFlag.visible = true;
+      raceFlag.position.copy(to3(RACE_START.x, RACE_START.y, 0));
+      raceFlag.rotation.y = Math.sin(time * 1.2) * 0.15;
+    } else raceFlag.visible = false;
+    const repoJob = st.phone.job && st.phone.job.type === 'repo' ? st.phone.job : null;
+    if (repoJob && screen === 'play') {
+      const mark = st.cars.find((c) => c.id === repoJob.targetCarId);
+      if (mark) {
+        repoRing.visible = true;
+        repoRing.position.copy(to3(mark.x, mark.y, 0.15));
+        repoRing.material.opacity = 0.6 + 0.2 * Math.sin(time * 4);
+      } else repoRing.visible = false;
+    } else repoRing.visible = false;
 
     // ---- particles + bullets ----
     // Near-camera cull: a smoke puff is a 1.6-unit gl_Point square; one

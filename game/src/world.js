@@ -6,8 +6,9 @@
 // flags. The public API the tests use is unchanged: createWorld, world.step,
 // world.startMission, world.completeMission, world.debugWin, world.debugChase,
 // world.addWanted, world.shoot, and state/screen/radio/effects on window.__game.
-import { CAR, HELI, HIDDEN_PACKAGES, PALETTE, PLAYER, STEP, VIEW, WORLD, WANTED_DECAY, districtAt } from './config.js';
+import { CAR, HELI, HIDDEN_PACKAGES, NITRO, PALETTE, PLAYER, STEP, VIEW, WORLD, WANTED_DECAY, districtAt } from './config.js';
 import { MISSIONS, completeMission as completeMissionFlow, createMissionState, refreshMissionTarget, startMission as startMissionFlow } from './missions.js';
+import { RANKS, WEAPONS, WEAPON_ORDER, rankFor } from './ranks.js';
 import { GANG_TURF, createGang } from './gang.js';
 import { createWeather } from './weather.js';
 import { createShop } from './shop.js';
@@ -22,6 +23,24 @@ export const EVENT_OVER = 4;
 export const EVENT_MISSION = 8;
 export const EVENT_WANTED = 16;
 export const EVENT_SHOT = 32;
+
+// Street race (v6.5, Phase 3): a post-finale bonus race at the pier. The
+// route runs on roads only (axis-aligned legs), so rival racers never cut
+// through buildings. Start at the pier intersection, east along y=3250,
+// north up x=4661, east along y=1625, south down x=8309 to the finish.
+export const RACE_START = { x: 1013, y: 3250, label: 'Street Race' };
+export const RACE_ROUTE = [
+  { x: 4661, y: 3250 },
+  { x: 4661, y: 1625 },
+  { x: 8309, y: 1625 },
+  { x: 8309, y: 4062 },
+];
+const RACE_PAYOUTS = [600, 300, 150, 50];
+const RACE_RIVALS = [
+  { name: 'VEX', color: '#e74c3c', top: 340 },
+  { name: 'NOVA', color: '#f1c40f', top: 365 },
+  { name: 'REX', color: '#9b59b6', top: 390 },
+];
 
 // Road grid: the v6.4 roads scaled x3.1667 / y3.1731 for the 10x map,
 // plus a midpoint road between each pair so the blocks stay city-sized
@@ -128,7 +147,7 @@ export function createWorld(random) {
   };
 
   // ---- dynamic state ----
-  const player = { x: 1013, y: 3250, angle: 0, health: PLAYER.health, armor: 0, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0 };
+  const player = { x: 1013, y: 3250, angle: 0, health: PLAYER.health, armor: 0, ammo: 30, inCar: false, carId: -1, invuln: 0, punchCd: 0, shootCd: 0, speed: 0, weapon: 'pistol' };
   const cars = []; const peds = []; const cops = []; const bullets = []; const pickups = []; const particles = [];
   const gangCars = [];
   const state = {
@@ -143,7 +162,19 @@ export function createWorld(random) {
     gang: { kills: 0, respawn: 0 },
     weather: weather.data, shop: shop.data, phone: phone.data,
     district: 'Beach', districtTimer: 0, drivebyAt: -1,
+    // Phase 3: nitro meter (100 = full), crew cooldowns + Eyes Out timer,
+    // floating stunt popups, respect rank + owned weapons, street race.
+    nitro: NITRO.max, nitroBoosting: false,
+    crew: { miraCd: 0, lioCd: 0, kikiCd: 0, eyesT: 0 },
+    popups: [],
+    rank: 0,
+    weapons: { fists: true, pistol: true, smg: false, '12g': false, mako: false },
+    raceAvailable: false, race: null, raceCooldown: 0,
   };
+  // Drift tracking (closure, not state): previous car angle + how long the
+  // current drift has held. A drift pays out when it ENDS, so a long
+  // slide is one payout, not one per frame.
+  const drift = { prevAngle: 0, t: 0 };
 
   // ---- small shared helpers ----
   // Particles spawn in a small disc around (x, y), not exactly on one
@@ -178,7 +209,7 @@ export function createWorld(random) {
   function nearestCar(maxD) {
     let best = null; let bd = maxD;
     for (const c of cars) {
-      if (c.cop) continue;
+      if (c.cop || c.race) continue; // race rivals are never stealable mid-race
       const d = dist(player.x, player.y, c.x, c.y);
       if (d < bd) { bd = d; best = c; }
     }
@@ -263,14 +294,22 @@ export function createWorld(random) {
 
   function reset() {
     player.x = 1013; player.y = 3250; player.angle = 0; player.health = PLAYER.health; player.armor = 0; player.ammo = 30;
-    player.inCar = false; player.carId = -1; player.invuln = 0; player.speed = 0;
+    player.inCar = false; player.carId = -1; player.invuln = 0; player.speed = 0; player.weapon = 'pistol';
     bullets.length = 0; particles.length = 0; cops.length = 0;
     state.money = 0; state.respect = 0; state.wanted = 0; state.wantedTimer = 0; state.crimeTimer = 99;
     state.elapsed = 0; state.over = null; state.overReason = ''; state.arrest = 0;
     state.shotsFired = 0; state.carsStolen = 0; state.pedsHit = 0;
     state.heli = null; state.hiddenFound = 0;
     state.missionsDone = 0; state.collected = 0; state.district = 'Beach'; state.districtTimer = 0;
+    state.nitro = NITRO.max; state.nitroBoosting = false;
+    state.crew = { miraCd: 0, lioCd: 0, kikiCd: 0, eyesT: 0 };
+    state.popups.length = 0;
+    state.rank = 0;
+    state.weapons = { fists: true, pistol: true, smg: false, '12g': false, mako: false };
+    state.raceAvailable = false; state.race = null; state.raceCooldown = 0;
+    drift.prevAngle = 0; drift.t = 0;
     nextCopId = 900;
+    nextRaceId = 2000;
     state.drivebyAt = -1;
     weather.reset();
     phone.reset();
@@ -287,6 +326,11 @@ export function createWorld(random) {
     state.money = data.money || 0; state.respect = data.respect || 0;
     state.best = data.best || 0;
     state.missionsDone = data.missionsDone || 0;
+    state.rank = data.rank || 0;
+    if (Array.isArray(data.weapons)) {
+      for (const w of data.weapons) if (w in state.weapons) state.weapons[w] = true;
+    }
+    if (data.weapon && state.weapons[data.weapon]) player.weapon = data.weapon;
     if (state.missionsDone >= MISSIONS.length) {
       state.missionIndex = MISSIONS.length; state.missionTarget = null;
       state.missionText = 'Vice Coast is yours. Free roam!';
@@ -308,10 +352,12 @@ export function createWorld(random) {
     if (!car) return;
     if (car.traffic) { car.traffic = false; car.parked = false; state.carsStolen += 1; addWanted(1); state.message = 'Car stolen! The owner called it in.'; state.messageTimer = 3; }
     player.inCar = true; player.carId = car.id; car.speed = 0;
+    drift.prevAngle = car.angle; drift.t = 0;
   }
   function shoot(aimAngle) {
     if (player.shootCd > 0 || player.inCar) return 0;
-    if (player.ammo <= 0) {
+    const w = WEAPONS[player.weapon] || WEAPONS.pistol;
+    if (player.weapon === 'fists' || player.ammo <= 0) {
       // Punch instead: short-range melee.
       if (player.punchCd > 0) return 0;
       player.punchCd = 0.45;
@@ -321,13 +367,173 @@ export function createWorld(random) {
       for (const g of gangCars) if (dist(px, py, g.x, g.y) < 34) { g.health -= 25; if (g.health <= 0) gang.destroyCar(state, g, { burst, onGangKill: () => phone.onCarDestroyed(state) }); }
       return EVENT_HIT;
     }
-    player.shootCd = 0.22; player.ammo -= 1; state.shotsFired += 1;
-    bullets.push({ x: player.x + Math.cos(aimAngle) * 20, y: player.y + Math.sin(aimAngle) * 20, vx: Math.cos(aimAngle) * 950, vy: Math.sin(aimAngle) * 950, life: 0.7 });
+    player.shootCd = w.cd; player.ammo -= 1; state.shotsFired += 1;
+    // Spread weapons (12G) fire several pellets at small angle offsets.
+    for (let i = 0; i < w.spread; i += 1) {
+      const off = w.spread > 1 ? (i - (w.spread - 1) / 2) * 0.07 : 0;
+      const a = aimAngle + off;
+      bullets.push({ x: player.x + Math.cos(a) * 20, y: player.y + Math.sin(a) * 20, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, life: w.life, dmg: w.dmg });
+    }
     // Muzzle flash: few, fast, short-lived. The old 4 slow particles
     // (speed 20-160, life 0.8) hovered at the gun and overlapped into a
     // flat pale panel in the play/heist shots.
     burst(player.x + Math.cos(aimAngle) * 26, player.y + Math.sin(aimAngle) * 26, '#ffd76a', 3, 260, 120, 0.35);
     return EVENT_SHOT;
+  }
+
+  // ---- Phase 3 helpers ----
+  // Floating stunt popup: shown by the HUD for ~2.4 s, newest last.
+  function addPopup(text) {
+    state.popups.push({ text, t: 2.4 });
+    if (state.popups.length > 3) state.popups.shift();
+  }
+  // Crew abilities (tap a crew card, press 1/2/3, or call from the phone).
+  const CREW_DEFS = {
+    mira: { cd: 45, label: 'Mira · SWAP PLATES' },
+    lio: { cd: 30, label: 'Lio · QUICK FIX' },
+    kiki: { cd: 60, label: 'Kiki · EYES OUT' },
+  };
+  function useCrew(id) {
+    const def = CREW_DEFS[id];
+    if (!def) return { ok: false, msg: 'No such crew member.' };
+    const c = state.crew;
+    const cdKey = `${id}Cd`;
+    if (c[cdKey] > 0) return { ok: false, msg: `${def.label} — ready in ${Math.ceil(c[cdKey])}s.` };
+    if (id === 'mira') {
+      if (state.wanted <= 0) return { ok: false, msg: 'Swap Plates needs heat — you have no wanted stars.' };
+      state.wanted -= 1; state.wantedTimer = 0;
+      c.miraCd = def.cd;
+      state.message = 'Mira swapped the plates — wanted down 1 star!'; state.messageTimer = 3;
+      return { ok: true, msg: state.message };
+    }
+    if (id === 'lio') {
+      if (!player.inCar) return { ok: false, msg: 'Quick Fix needs a car — get in one first.' };
+      const car = cars.find((x) => x.id === player.carId);
+      if (!car) return { ok: false, msg: 'No car.' };
+      if (car.health >= 100) return { ok: false, msg: 'Car is already at full health.' };
+      car.health = 100; c.lioCd = def.cd;
+      state.message = 'Lio patched the car — 100% health!'; state.messageTimer = 3;
+      return { ok: true, msg: state.message };
+    }
+    c.kikiCd = def.cd; c.eyesT = 20;
+    state.message = 'Kiki has eyes out — all cops marked on the minimap for 20s!'; state.messageTimer = 3;
+    return { ok: true, msg: state.message };
+  }
+  function selectWeapon(id) {
+    if (!WEAPONS[id]) return { ok: false, msg: 'No such weapon.' };
+    if (!state.weapons[id]) return { ok: false, msg: `${WEAPONS[id].name} is locked — rank up to unlock it.` };
+    player.weapon = id;
+    return { ok: true, msg: `${WEAPONS[id].name} equipped.` };
+  }
+  function cycleWeapon() {
+    const owned = WEAPON_ORDER.filter((w) => state.weapons[w]);
+    const i = owned.indexOf(player.weapon);
+    const next = owned[(i + 1) % owned.length];
+    player.weapon = next;
+    return { ok: true, msg: `${WEAPONS[next].name} equipped.` };
+  }
+  // Respect ranks: one check per step covers every respect source
+  // (missions, jobs, hidden packages, gang kills) without touching each
+  // call site. A rank-up grants its unlock and auto-equips the weapon.
+  function checkRanks() {
+    const nr = rankFor(state.respect);
+    for (let i = state.rank + 1; i <= nr; i += 1) {
+      state.rank = i;
+      const unlock = RANKS[i].unlock;
+      if (unlock && unlock.weapon) {
+        state.weapons[unlock.weapon] = true;
+        player.weapon = unlock.weapon;
+      }
+      state.message = `RANK UP! ${RANKS[i].name}${unlock ? ` — ${unlock.label} UNLOCKED` : ''}`; state.messageTimer = 4;
+    }
+  }
+  // ---- Street race ----
+  let nextRaceId = 2000;
+  function routeProgress(stage, x, y) {
+    const target = RACE_ROUTE[Math.min(stage, RACE_ROUTE.length - 1)];
+    return stage * 10000 - dist(x, y, target.x, target.y);
+  }
+  function startRace() {
+    const rivals = RACE_RIVALS.map((r, i) => {
+      const car = {
+        id: nextRaceId, x: RACE_START.x - 60 - i * 70, y: RACE_START.y - 70 + (i % 2) * 140,
+        angle: 0, speed: 0, health: 100, color: r.color, traffic: false, cop: false, parked: false,
+        vertical: false, road: 3250, honk: 0, race: true, raceName: r.name, raceTop: r.top,
+        raceStage: 0, raceDone: false, raceTime: 0, limpT: 0,
+      };
+      nextRaceId += 1;
+      cars.push(car);
+      return car;
+    });
+    state.race = { phase: 'countdown', countdown: 3.2, timer: 180, stage: 0, rivals, finished: 0, position: 4, result: null, payout: 0 };
+    state.message = 'STREET RACE — 3, 2, 1…'; state.messageTimer = 3;
+  }
+  function endRace(msg, payout) {
+    const r = state.race;
+    if (!r) return;
+    for (const rv of r.rivals) { const i = cars.indexOf(rv); if (i >= 0) cars.splice(i, 1); }
+    if (payout > 0) { state.money += payout; state.respect += 10; }
+    state.message = msg; state.messageTimer = 4;
+    state.race = null; state.raceCooldown = 15;
+  }
+  function updateRace(dt) {
+    if (state.raceCooldown > 0) state.raceCooldown -= dt;
+    state.raceAvailable = state.missionsDone >= 10;
+    const r = state.race;
+    if (!r) {
+      if (state.raceAvailable && state.raceCooldown <= 0 && player.inCar && dist(player.x, player.y, RACE_START.x, RACE_START.y) < 90) startRace();
+      return;
+    }
+    if (r.phase === 'countdown') {
+      r.countdown -= dt;
+      if (r.countdown <= 0) { r.phase = 'racing'; state.message = 'GO!'; state.messageTimer = 1; }
+      return;
+    }
+    r.timer -= dt;
+    if (r.timer <= 0) { endRace('Race over — out of time.', 0); return; }
+    const target = RACE_ROUTE[r.stage];
+    if (target && dist(player.x, player.y, target.x, target.y) < 90) {
+      r.stage += 1;
+      if (r.stage >= RACE_ROUTE.length) {
+        const place = 1 + r.finished;
+        const payout = RACE_PAYOUTS[place - 1] || 50;
+        endRace(`Race finished — ${place}${place === 1 ? 'st' : place === 2 ? 'nd' : place === 3 ? 'rd' : 'th'} place! +$${payout}`, payout);
+        return;
+      }
+      state.message = `Checkpoint ${r.stage}/${RACE_ROUTE.length}!`; state.messageTimer = 2;
+    }
+    const pProg = routeProgress(r.stage, player.x, player.y);
+    for (const rv of r.rivals) {
+      if (rv.raceDone) continue;
+      if (rv.health <= 0) { rv.health = 100; rv.limpT = 4; }
+      if (rv.limpT > 0) rv.limpT -= dt;
+      const tgt = RACE_ROUTE[rv.raceStage];
+      if (!tgt) continue;
+      const dx = tgt.x - rv.x, dy = tgt.y - rv.y;
+      // Axis-aligned legs only, so rivals stay on roads and never cut
+      // through buildings: drive along x until aligned, then along y.
+      const desired = Math.abs(dx) > 120 ? (dx > 0 ? 0 : Math.PI) : (dy > 0 ? Math.PI / 2 : -Math.PI / 2);
+      rv.angle += clamp(normAngle(desired - rv.angle), -3.0 * dt, 3.0 * dt);
+      const rvProg = routeProgress(rv.raceStage, rv.x, rv.y);
+      let top = rv.raceTop * (rv.limpT > 0 ? 0.35 : 1);
+      if (rvProg < pProg - 800) top *= 1.1; else if (rvProg > pProg + 800) top *= 0.9;
+      rv.speed = clamp(rv.speed + 350 * dt, 0, top);
+      const nx = rv.x + Math.cos(rv.angle) * rv.speed * dt;
+      const ny = rv.y + Math.sin(rv.angle) * rv.speed * dt;
+      if (!collideBuildings(nx, ny, 26).hit) { rv.x = nx; rv.y = ny; }
+      if (dist(rv.x, rv.y, tgt.x, tgt.y) < 90) {
+        rv.raceStage += 1;
+        if (rv.raceStage >= RACE_ROUTE.length) { rv.raceDone = true; rv.raceTime = 180 - r.timer; r.finished += 1; }
+      }
+    }
+    r.position = 1 + r.finished + r.rivals.filter((rv) => !rv.raceDone && routeProgress(rv.raceStage, rv.x, rv.y) > pProg).length;
+    if (r.finished >= r.rivals.length && r.stage < RACE_ROUTE.length) {
+      endRace('Race finished — 4th place! +$50', 50);
+      return;
+    }
+    const pc = cars.find((c) => c.id === player.carId);
+    if (!player.inCar) { endRace('You left the car — race over.', 0); return; }
+    if (pc && pc.health <= 0) { endRace('Your car is wrecked — race over.', 0); return; }
   }
 
   function updatePlayer(dt, ctrl) {
@@ -343,12 +549,55 @@ export function createWorld(random) {
       const steer = ctrl.move.x;
       // Rain makes the roads slick: slightly less grip, a touch less turn.
       const grip = state.weather.raining ? 0.82 : 1;
-      if (throttle > 0) car.speed += CAR.accel * dt * grip;
+      // Race countdown: the car stays put until the GO, so a late
+      // throttle press cannot jump the start.
+      const raceFreeze = state.race && state.race.phase === 'countdown';
+      // Nitro: hold BOOST while moving to burn the meter for +35% top
+      // speed and +50% accel; it refills 8/s when not burning.
+      const boost = !raceFreeze && ctrl.boost && state.nitro > 0 && Math.abs(car.speed) > 0;
+      state.nitroBoosting = boost;
+      if (boost) {
+        state.nitro = Math.max(0, state.nitro - NITRO.drain * dt);
+        burst(car.x - Math.cos(car.angle) * 46, car.y - Math.sin(car.angle) * 46, '#ff8c1a', 1, 60, 30, 0.35);
+      } else {
+        state.nitro = Math.min(NITRO.max, state.nitro + NITRO.refill * dt);
+      }
+      const topSpeed = CAR.maxSpeed * (boost ? NITRO.boostMul : 1);
+      const accel = CAR.accel * (boost ? NITRO.accelMul : 1);
+      if (raceFreeze) car.speed = Math.max(0, car.speed - 600 * dt);
+      else if (throttle > 0) car.speed += accel * dt * grip;
       else if (throttle < 0) car.speed -= (car.speed > 0 ? CAR.brake : CAR.accel * 0.6) * dt;
       else car.speed *= Math.pow(0.4, dt);
-      car.speed = clamp(car.speed, -CAR.reverse, CAR.maxSpeed);
-      const turnRate = CAR.turn * grip * clamp(Math.abs(car.speed) / 220, 0, 1) * (car.speed >= 0 ? 1 : -1);
+      // When the boost ends the car is above the normal top speed: bleed
+      // the excess down at 600/s instead of snapping. The bleed must beat
+      // full-throttle accel (336/s) or the car creeps up past 448 with the
+      // throttle held (300/s did exactly that). While not boosting the
+      // clamp's upper bound is the current speed, so it cannot snap the
+      // car down before the bleed runs.
+      car.speed = clamp(car.speed, -CAR.reverse, boost ? topSpeed : Math.max(CAR.maxSpeed, car.speed));
+      if (!boost && car.speed > CAR.maxSpeed) car.speed = Math.max(CAR.maxSpeed, car.speed - 600 * dt);
+      // Handbrake (Space in car): sharp turns + speed bleed, so the car
+      // can pitch into a drift. The bleed uses *= 0.3^dt so a tap slows
+      // without killing the slide outright.
+      if (ctrl.handbrake && !raceFreeze) car.speed *= Math.pow(0.3, dt);
+      const turnRate = CAR.turn * grip * (ctrl.handbrake && !raceFreeze ? 2.0 : 1) * clamp(Math.abs(car.speed) / 220, 0, 1) * (car.speed >= 0 ? 1 : -1);
       car.angle += steer * turnRate * dt;
+      // Drift: high speed + hard yaw + steering. The payout lands when
+      // the slide ENDS (t >= 0.6 s), so one long drift pays once.
+      const angleRate = normAngle(car.angle - drift.prevAngle) / Math.max(dt, 0.0001);
+      drift.prevAngle = car.angle;
+      const drifting = !raceFreeze && Math.abs(car.speed) > 220 && Math.abs(angleRate) > 1.1 && steer !== 0;
+      if (drifting) {
+        drift.t += dt;
+      } else if (drift.t >= 0.6) {
+        const mult = Math.min(5, 1 + Math.floor(drift.t));
+        const payout = 50 * mult;
+        state.money += payout;
+        addPopup(`DRIFT x${mult} +$${payout}`);
+        drift.t = 0;
+      } else {
+        drift.t = 0;
+      }
       const nx = car.x + Math.cos(car.angle) * car.speed * dt;
       const ny = car.y + Math.sin(car.angle) * car.speed * dt;
       if (car.hitCd > 0) car.hitCd -= dt;
@@ -368,6 +617,15 @@ export function createWorld(random) {
           other.traffic = false; other.speed = 0;
           other.x += (other.x - car.x) * 0.12; other.y += (other.y - car.y) * 0.12;
           if (car.hitCd <= 0) { car.speed *= 0.85; car.health -= 4; other.health -= 8; car.hitCd = 0.5; burst(other.x, other.y, '#ffb142', 5, 180); }
+        } else if (other.traffic && !other.parked && !other.race && Math.abs(car.speed) > 250) {
+          // Near miss: a fast pass within 52–78 of a moving traffic car
+          // pays $100, once per car per 5 s (nearCd ticks in updateTraffic).
+          const d = dist(car.x, car.y, other.x, other.y);
+          if (d >= 52 && d < 78 && (!other.nearCd || other.nearCd <= 0)) {
+            other.nearCd = 5;
+            state.money += 100;
+            addPopup('NEAR MISS +$100');
+          }
         }
       }
       for (const g of [...gangCars]) {
@@ -462,7 +720,7 @@ export function createWorld(random) {
     for (const c of cars) if (c.traffic && !c.cop && c.health > 0 && dist(c.x, c.y, player.x, player.y) < 450) nearCars += 1;
     if (nearCars < 8) {
       for (const c of cars) {
-        if (c.cop || c.health <= 0 || c.id === player.carId) continue;
+        if (c.cop || c.race || c.health <= 0 || c.id === player.carId) continue;
         // Traffic cars, plus abandoned wrecks the player rammed (they lost
         // traffic=true and would otherwise clog the roads forever).
         if (!c.traffic && c.parked) continue;
@@ -480,6 +738,7 @@ export function createWorld(random) {
   }
   function updateTraffic(dt) {
     for (const c of cars) {
+      if (c.nearCd > 0) c.nearCd -= dt;
       if (!c.traffic || c.cop) continue;
       // A wrecked traffic car stops dead instead of ghost-driving on.
       if (c.health <= 0) { c.speed = 0; continue; }
@@ -621,22 +880,22 @@ export function createWorld(random) {
         }
       }
       if (!dead && !b.gang) {
-        for (const p of peds) if (p.alive && dist(b.x, b.y, p.x, p.y) < 16) { p.health -= 34; p.flee = 3; if (p.health <= 0) { p.alive = false; addWanted(1); } burst(b.x, b.y, '#ff6b6b', 6, 180); dead = true; break; }
+        for (const p of peds) if (p.alive && dist(b.x, b.y, p.x, p.y) < 16) { p.health -= b.dmg ?? 30; p.flee = 3; if (p.health <= 0) { p.alive = false; addWanted(1); } burst(b.x, b.y, '#ff6b6b', 6, 180); dead = true; break; }
         if (!dead) for (const c of cops) {
           if (c.dead) continue;
           const t = c.inCar && c.car ? c.car : c;
           if (dist(b.x, b.y, t.x, t.y) < (c.inCar ? 30 : 16)) {
-            if (c.inCar) c.car.health -= 30; else { c.health -= 34; if (c.health <= 0) c.dead = true; }
+            if (c.inCar) c.car.health -= b.dmg ?? 30; else { c.health -= b.dmg ?? 30; if (c.health <= 0) c.dead = true; }
             addWanted(1); burst(b.x, b.y, '#ffd32a', 6, 180); dead = true; break;
           }
         }
         if (!dead) for (const c of cars) {
           if (c.cop) continue;
-          if (dist(b.x, b.y, c.x, c.y) < 30) { c.health -= 25; burst(b.x, b.y, '#ffb142', 5, 160); if (c.health <= 0) burst(c.x, c.y, '#ff5722', 16, 260); dead = true; break; }
+          if (dist(b.x, b.y, c.x, c.y) < 30) { c.health -= b.dmg ?? 30; burst(b.x, b.y, '#ffb142', 5, 160); if (c.health <= 0) burst(c.x, c.y, '#ff5722', 16, 260); dead = true; break; }
         }
         if (!dead) for (const g of gangCars) {
           if (dist(b.x, b.y, g.x, g.y) < 38) {
-            g.health -= 25; burst(b.x, b.y, '#c084fc', 6, 180);
+            g.health -= b.dmg ?? 30; burst(b.x, b.y, '#c084fc', 6, 180);
             if (g.health <= 0) gang.destroyCar(state, g, { burst, onGangKill: () => phone.onCarDestroyed(state) });
             dead = true; break;
           }
@@ -746,6 +1005,14 @@ export function createWorld(random) {
     weather.update(dt);
     if (state.messageTimer > 0) state.messageTimer -= dt;
     if (state.missionFlash > 0) state.missionFlash -= dt;
+    // Phase 3: crew cooldowns + Eyes Out timer tick down; stunt popups
+    // expire after ~2.4 s.
+    const crew = state.crew;
+    if (crew.miraCd > 0) crew.miraCd -= dt;
+    if (crew.lioCd > 0) crew.lioCd -= dt;
+    if (crew.kikiCd > 0) crew.kikiCd -= dt;
+    if (crew.eyesT > 0) crew.eyesT -= dt;
+    for (let i = state.popups.length - 1; i >= 0; i -= 1) { state.popups[i].t -= dt; if (state.popups[i].t <= 0) state.popups.splice(i, 1); }
     if (state.districtTimer > 0) state.districtTimer -= dt;
     state.crimeTimer += dt;
     updateTraffic(dt);
@@ -764,7 +1031,7 @@ export function createWorld(random) {
       return 0;
     }
     if (state.over) return EVENT_OVER;
-    const c = ctrl || { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: 0, enter: false };
+    const c = ctrl || { move: { x: 0, y: 0 }, sprint: false, boost: false, handbrake: false, shoot: false, aimAngle: 0, enter: false };
     updatePlayer(dt, c);
     updateBullets(dt);
     updateCops(dt);
@@ -775,6 +1042,8 @@ export function createWorld(random) {
       onGangKill() { phone.onCarDestroyed(state); },
     });
     phone.update(dt, state);
+    updateRace(dt);
+    checkRanks();
     events |= updatePickups(dt);
     events |= updateMission(dt);
     // District banner: show the district name for 3 s when it changes.
@@ -798,6 +1067,7 @@ export function createWorld(random) {
   reset();
   return {
     state, reset, step, addWanted, enterCar, shoot, startMission, completeMission, continueSave, nearestCar,
+    useCrew, selectWeapon, cycleWeapon,
     weather, gang, shop, phone,
     // Staging helpers used by shots.js / tests: real code paths, not shortcuts.
     debugWin() { state.money = 9850; state.missionsDone = 10; state.missionIndex = 10; state.wanted = 0; state.missionText = 'Vice Coast is yours!'; state.missionTarget = null; state.message = ''; state.messageTimer = 0; const c = cars.find((x) => x.id === player.carId); if (c) c.speed = 0; winGame(); },

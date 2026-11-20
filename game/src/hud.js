@@ -9,12 +9,14 @@
 import { MISSIONS } from './missions.js';
 import { clockFor } from './weather.js';
 import { WORLD, SHOP_POS } from './config.js';
-import { ROADS_V, ROADS_H } from './world.js';
+import { ROADS_V, ROADS_H, RACE_START, RACE_ROUTE } from './world.js';
+import { RANKS, WEAPONS, nextRankInfo } from './ranks.js';
+import { PHONE_JOBS } from './phone.js';
 
 const CREW = [
-  { name: 'Mira', role: 'Driver', perk: 'SWAP PLATES', color: '#ff6b9d', init: 'M' },
-  { name: 'Lio', role: 'Mechanic', perk: 'QUICK FIX', color: '#f1c40f', init: 'L' },
-  { name: 'Kiki', role: 'Lookout', perk: 'EYES OUT', color: '#48dbfb', init: 'K' },
+  { id: 'mira', name: 'Mira', role: 'Driver', perk: 'SWAP PLATES', color: '#ff6b9d', init: 'M' },
+  { id: 'lio', name: 'Lio', role: 'Mechanic', perk: 'QUICK FIX', color: '#f1c40f', init: 'L' },
+  { id: 'kiki', name: 'Kiki', role: 'Lookout', perk: 'EYES OUT', color: '#48dbfb', init: 'K' },
 ];
 const DIALOGUE = [
   ['MIRA', 'Wheelman', 'Pier pickup, then the hotel. Smooth and fast — she tips for speed.'],
@@ -58,12 +60,15 @@ export function createHUD(callbacks) {
     <div class="vc-status" id="vc-status">VCPD · CLEAR</div>
   </div>
   <div class="vc-wanted" id="vc-wanted"></div>
+  <div class="vc-stunts" id="vc-stunts"></div>
+  <div class="vc-race" id="vc-race"></div>
   <div class="vc-right">
     <div class="vc-weapons" id="vc-weapons"></div>
     <div class="vc-crew" id="vc-crew"></div>
   </div>
   <div class="vc-bottom-left">
     <div class="vc-district" id="vc-district">Kumala Strand</div>
+    <div class="vc-rank" id="vc-rank">DOCK HAND</div>
     <div class="vc-respect"><div id="vc-respect-fill"></div></div>
     <canvas class="vc-minimap" id="vc-minimap" width="360" height="360"></canvas>
     <div class="vc-bars">
@@ -77,6 +82,7 @@ export function createHUD(callbacks) {
     <div class="vc-gear" id="vc-gear">P</div>
     <div class="vc-car" id="vc-car">RUKAN PELO GT</div>
     <div class="vc-cond"><div id="vc-cond-fill"></div></div>
+    <div class="vc-nitro" id="vc-nitro"><div id="vc-nitro-fill"></div><span>NITRO</span></div>
     <div class="vc-radio" id="vc-radio">OMBO 98.4 — Island Pop</div>
   </div>
   <div class="vc-banner" id="vc-banner"></div>
@@ -85,7 +91,8 @@ export function createHUD(callbacks) {
   <div class="vc-hitmarker" id="vc-hitmarker">✕</div>
   <div class="vc-message" id="vc-message"></div>
   <div class="vc-shop" id="vc-shop"></div>
-  <div class="vc-phone" id="vc-phone"></div>`;
+  <div class="vc-phone" id="vc-phone"></div>
+  <div class="vc-weapon-chip" id="vc-weapon-chip"></div>`;
   document.body.appendChild(root);
 
   // ---- screens (title / briefing / pause / over / win) ----
@@ -97,8 +104,8 @@ export function createHUD(callbacks) {
     <div class="vc-title-stats" id="vc-title-stats"></div>
     <button class="vc-bigbtn" id="vc-btn-start">▶ &nbsp;START</button>
     <button class="vc-bigbtn vc-btn-ghost" id="vc-btn-continue" style="display:none">CONTINUE — RESUME YOUR RUN</button>
-    <div class="vc-keys">WASD drive / walk &nbsp;·&nbsp; F / SPACE enter car &nbsp;·&nbsp; Mouse aim, click shoot &nbsp;·&nbsp; P phone &nbsp;·&nbsp; Q radio</div>
-    <div class="vc-keys">Touch: left stick to move · GAS / BRAKE to drive · SHOOT / ENTER on the right</div>
+    <div class="vc-keys">WASD drive / walk &nbsp;·&nbsp; F / SPACE enter car &nbsp;·&nbsp; Shift nitro · Space handbrake (in car) · V weapon &nbsp;·&nbsp; P phone &nbsp;·&nbsp; Q radio</div>
+    <div class="vc-keys">Touch: left stick to move · GAS / BRAKE to drive · BOOST / HBRK in car · SHOOT / ENTER on the right</div>
   </div>
   <div class="vc-screen" id="vc-screen-brief" style="display:none">
     <div class="vc-brief-kicker" id="vc-brief-kicker">MISSION 1</div>
@@ -148,6 +155,11 @@ export function createHUD(callbacks) {
   let lastDialogMission = -1;
   let lastFlash = 0;
   let radioIdx = 0;
+  // The main loop passes per-frame callbacks (onCrew / onWeapon /
+  // onWeaponCycle) through update()'s opts; the delegated tap handlers
+  // below read the latest set. Guarded with ?. — runShot mode passes
+  // no callbacks at all.
+  let liveOpts = {};
 
   // Shop / phone panels are re-rendered every frame, so taps are handled by
   // delegation on the container (survives innerHTML swaps). Rows carry a
@@ -166,8 +178,14 @@ export function createHUD(callbacks) {
   });
   wirePanel('vc-phone', (a) => {
     if (a === 'close') { if (callbacks.onPhoneClose) callbacks.onPhoneClose(); }
+    else if (a.startsWith('crew:')) { if (liveOpts.onCrew) liveOpts.onCrew(a.slice(5)); }
     else if (callbacks.onPhoneJob) callbacks.onPhoneJob(a);
   });
+  // Phase 3: weapon slots + crew cards are tappable (rows carry
+  // data-action, handled by the same delegation as the panels).
+  wirePanel('vc-weapons', (a) => { if (liveOpts.onWeapon) liveOpts.onWeapon(a); });
+  wirePanel('vc-crew', (a) => { if (liveOpts.onCrew) liveOpts.onCrew(a); });
+  bind('vc-weapon-chip', () => { if (liveOpts.onWeaponCycle) liveOpts.onWeaponCycle(); });
 
   function drawMinimap(st) {
     const w = 360, s = w / WORLD.width, mh = WORLD.height * s;
@@ -208,6 +226,26 @@ export function createHUD(callbacks) {
       mctx.fillRect(-6, -6, 12, 12);
       mctx.restore();
     }
+    // Street-race marker (gold R) once the finale is done; during a race,
+    // gold checkpoint dots + orange rival dots.
+    if (st.raceAvailable && !st.race) {
+      mctx.fillStyle = '#ffd700'; mctx.font = 'bold 18px system-ui'; mctx.fillText('R', RACE_START.x * s - 6, RACE_START.y * s + 6);
+    }
+    if (st.race) {
+      for (let i = st.race.stage; i < RACE_ROUTE.length; i += 1) {
+        mctx.fillStyle = i === st.race.stage ? '#ffd700' : 'rgba(255,215,0,0.45)';
+        mctx.beginPath(); mctx.arc(RACE_ROUTE[i].x * s, RACE_ROUTE[i].y * s, 7, 0, Math.PI * 2); mctx.fill();
+      }
+      for (const rv of st.race.rivals) {
+        mctx.fillStyle = '#ff8c1a'; mctx.beginPath(); mctx.arc(rv.x * s, rv.y * s, 5, 0, Math.PI * 2); mctx.fill();
+      }
+    }
+    // Kiki's Eyes Out: foot cops show as red dots for 20 s.
+    if (st.crew && st.crew.eyesT > 0) {
+      for (const cop of st.cops) {
+        if (!cop.inCar && !cop.dead) { mctx.fillStyle = '#ff3b30'; mctx.beginPath(); mctx.arc(cop.x * s, cop.y * s, 5, 0, Math.PI * 2); mctx.fill(); }
+      }
+    }
     // Cops red, gang purple, traffic grey dots.
     for (const c of st.cars) {
       if (c.cop) { mctx.fillStyle = '#ff3b30'; mctx.beginPath(); mctx.arc(c.x * s, c.y * s, 6, 0, Math.PI * 2); mctx.fill(); }
@@ -240,20 +278,20 @@ export function createHUD(callbacks) {
 
   function weaponSlots(st) {
     const ammo = st.player.ammo;
-    // Slots 3-5 are locked: no weapon switching exists in the game, so the
-    // old hardcoded '30/60' / '150' ammo strings were fake (B4). Show them
-    // as unowned instead of inventing ammo.
-    const slots = [
-      ['1', 'FISTS', '∞', true],
-      ['2', 'PISTOL', `${ammo}`, ammo > 0],
-      ['3', 'SMG', '—', false],
-      ['4', '12G', '—', false],
-      ['5', 'MAKO', '—', false],
-    ];
-    return slots.map(([n, name, am, on]) => `<div class="vc-weapon ${on ? 'on' : ''}"><b>${n}</b>${WEAPON_ICONS[name]}<span>${name}</span><i>${am}</i></div>`).join('');
+    const cur = st.player.weapon || 'pistol';
+    // Phase 3: slots show owned vs locked (rank unlocks), the selected
+    // weapon, and are tappable (data-action). Ammo is the shared pool.
+    return ['fists', 'pistol', 'smg', '12g', 'mako'].map((id, i) => {
+      const owned = st.weapons ? !!st.weapons[id] : id === 'fists' || id === 'pistol';
+      const sel = cur === id;
+      const label = id === 'fists' ? 'FISTS' : id === '12g' ? '12G' : id.toUpperCase();
+      const am = !owned ? 'LOCKED' : id === 'fists' ? '∞' : `${ammo}`;
+      return `<div class="vc-weapon ${owned ? 'on' : 'locked'} ${sel ? 'sel' : ''}" data-action="${id}"><b>${i + 1}</b>${WEAPON_ICONS[label]}<span>${label}</span><i>${am}</i></div>`;
+    }).join('');
   }
 
   function update(st, screen, opts = {}) {
+    liveOpts = opts;
     const inCar = st.player.inCar;
     const car = inCar ? st.cars.find((c) => c.id === st.player.carId) : null;
     const m = MISSIONS[Math.min(st.missionIndex, 9)];
@@ -270,7 +308,7 @@ export function createHUD(callbacks) {
     stageChip.style.display = stageTotal > 1 ? 'inline-block' : 'none';
     $('vc-mission-fill').style.width = `${st.missionIndex >= 10 ? 100 : ((st.missionIndex + stageDone / (stageTotal + 1)) / 10) * 100}%`;
     $('vc-mission-obj').textContent = st.missionText || '';
-    $('vc-mission-next').textContent = st.missionTimer > 0 ? `⏱ ${Math.ceil(st.missionTimer)}s left` : `PACKAGES ${st.hiddenFound}/${st.hiddenTotal} · RESPECT ${st.respect}`;
+    $('vc-mission-next').textContent = st.missionTimer > 0 ? `⏱ ${Math.ceil(st.missionTimer)}s left` : st.raceAvailable ? '🏁 STREET RACE at the pier — drive into the gold marker' : `PACKAGES ${st.hiddenFound}/${st.hiddenTotal} · RESPECT ${st.respect}`;
     // Police response list.
     const units = $('vc-units');
     if (st.wanted > 0) {
@@ -294,9 +332,20 @@ export function createHUD(callbacks) {
     $('vc-status').textContent = st.heli ? 'AIR UNIT DEPLOYED · SPOTLIGHT ACTIVE' : st.wanted > 0 ? `VCPD · ${st.wanted} STAR${st.wanted > 1 ? 'S' : ''} — LOSE THEM` : 'VCPD · CLEAR';
     $('vc-status').style.color = st.wanted > 0 ? '#ff6b6b' : '#7dff9a';
     $('vc-weapons').innerHTML = weaponSlots(st);
-    $('vc-crew').innerHTML = CREW.map((c) => `<div class="vc-crew-card"><div class="vc-crew-face" style="background:${c.color}">${c.init}</div><div><b>${c.perk}</b><span>${c.name} · ${c.role}</span></div></div>`).join('');
+    // Phase 3: crew cards are tappable abilities — the cooldown seconds
+    // show while one is recharging.
+    $('vc-crew').innerHTML = CREW.map((c) => {
+      const cd = st.crew ? st.crew[`${c.id}Cd`] || 0 : 0;
+      const cdText = cd > 0 ? ` · ${Math.ceil(cd)}s` : '';
+      return `<div class="vc-crew-card ${cd > 0 ? 'cooling' : ''}" data-action="${c.id}"><div class="vc-crew-face" style="background:${c.color}">${c.init}</div><div><b>${c.perk}</b><span>${c.name} · ${c.role}${cdText}</span></div></div>`;
+    }).join('');
     $('vc-district').textContent = `${st.district} · ${st.weather.phase === 'sunset' ? 'Golden Hour' : st.weather.phase === 'night' ? 'Night' : st.weather.raining ? 'Rain' : 'Day'}`;
-    $('vc-respect-fill').style.width = `${Math.min(100, st.respect)}%`;
+    // Phase 3: named respect ranks — the bar fills within the current
+    // rank, and the label previews the next unlock.
+    const rank = RANKS[st.rank || 0];
+    const next = nextRankInfo(st.respect);
+    $('vc-rank').textContent = next ? `${rank.name} · ${st.respect}/${next.rank.xp} · NEXT: ${next.rank.name} — ${next.rank.unlock ? next.rank.unlock.label : ''}` : `${rank.name} · MAX`;
+    $('vc-respect-fill').style.width = `${next ? Math.min(100, Math.max(0, next.progress * 100)) : 100}%`;
     $('vc-health').style.width = `${Math.max(0, st.player.health)}%`;
     $('vc-armor').style.width = `${Math.max(0, st.player.armor)}%`;
     drawMinimap(st);
@@ -320,6 +369,26 @@ export function createHUD(callbacks) {
     $('vc-gear').textContent = !inCar ? 'F' : kmh === 0 ? 'P' : (st.player.speed || 0) < 0 ? 'R' : `D${Math.min(5, 1 + Math.floor(kmh / 40))}`;
     $('vc-car').textContent = car ? (car.cop ? 'VCPD INTERCEPTOR' : car.gang ? 'VIPER LOWRIDER' : 'RUKAN PELO GT') : 'ON FOOT';
     $('vc-cond-fill').style.width = `${car ? Math.max(0, car.health) : 100}%`;
+    // Phase 3: nitro meter under the speedometer (car only), flashing
+    // while the boost is burning.
+    const nitro = $('vc-nitro');
+    nitro.style.display = inCar ? 'flex' : 'none';
+    $('vc-nitro-fill').style.width = `${Math.max(0, Math.min(100, st.nitro || 0))}%`;
+    nitro.classList.toggle('boosting', !!st.nitroBoosting);
+    // Phase 3: floating stunt popups + the race overlay.
+    $('vc-stunts').innerHTML = (st.popups || []).map((p) => `<div class="vc-stunt">${p.text}</div>`).join('');
+    const raceEl = $('vc-race');
+    if (st.race) {
+      const r = st.race;
+      raceEl.style.display = 'block';
+      raceEl.textContent = r.phase === 'countdown'
+        ? `🏁 ${Math.ceil(r.countdown)}`
+        : `🏁 RACE ${r.stage}/${RACE_ROUTE.length} · ${Math.ceil(r.timer)}s · POS ${r.position}/4`;
+    } else raceEl.style.display = 'none';
+    // Phase 3: touch weapon chip (CSS shows it on touch devices only) —
+    // tap it to cycle the equipped weapon.
+    const w = WEAPONS[st.player.weapon || 'pistol'];
+    $('vc-weapon-chip').textContent = `${w.name} · ${st.player.weapon === 'fists' ? '∞' : st.player.ammo}`;
     radioIdx = opts.radioIdx || 0;
     $('vc-radio').textContent = RADIOS[radioIdx % RADIOS.length];
     $('vc-crosshair').style.display = opts.aiming && !inCar ? 'block' : 'none';
@@ -357,7 +426,15 @@ export function createHUD(callbacks) {
       phone.style.display = 'block';
       const job = st.phone.job;
       const jobLine = job ? `<div class="vc-phone-job">ACTIVE: ${job.label} — ${job.timer > 0 ? Math.ceil(job.timer) + 's left' : 'no timer'}</div>` : '';
-      phone.innerHTML = `<b>📱 PHONE — SIDE JOBS</b>${jobLine}<div class="vc-shop-row" data-action="courier">1 · Courier $80 <span>60s delivery</span></div><div class="vc-shop-row" data-action="vigilante">2 · Vigilante $120 <span>wreck 2 wanted cars</span></div><div class="vc-shop-row" data-action="racer">3 · Racer $150 <span>3 checkpoints in 45s</span></div><div class="vc-shop-row vc-shop-close" data-action="close">✕ Close</div><i>Tap a row to start · or press 1 / 2 / 3, P to close</i>`;
+      // Phase 3: job rows come from PHONE_JOBS (4 jobs now, incl. Repo),
+      // plus a CREW section so touch players can fire abilities — the
+      // .vc-right panel (weapons + crew) is hidden on touch devices.
+      const jobRows = PHONE_JOBS.map((j, i) => `<div class="vc-shop-row" data-action="${j.id}">${i + 1} · ${j.name} $${j.pay} <span>${j.desc}</span></div>`).join('');
+      const crewRows = CREW.map((c) => {
+        const cd = st.crew ? st.crew[`${c.id}Cd`] || 0 : 0;
+        return `<div class="vc-shop-row" data-action="crew:${c.id}">${c.name} · ${c.perk} <span>${cd > 0 ? `ready in ${Math.ceil(cd)}s` : 'tap to use'}</span></div>`;
+      }).join('');
+      phone.innerHTML = `<b>📱 PHONE — SIDE JOBS</b>${jobLine}${jobRows}<b>CREW</b>${crewRows}<div class="vc-shop-row vc-shop-close" data-action="close">✕ Close</div><i>Tap a row · or press 1 / 2 / 3 / 4, P to close</i>`;
     } else phone.style.display = 'none';
     // Screens.
     const show = (id, on) => { $(id).style.display = on ? 'flex' : 'none'; };

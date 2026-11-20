@@ -44,6 +44,27 @@
   .vc-crew-face { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; color: #14101f; text-shadow: none; flex: none; }
   .vc-crew-card b { display: block; color: #ffc93c; font-size: 11px; }
   .vc-crew-card span { color: #ffd9a0; }
+  /* Phase 3: weapon slots + crew cards are tappable (the HUD root is
+  pointer-events:none, so they opt back in); locked slots read LOCKED,
+  the selected slot gets a green outline, cooling crew cards dim. */
+  .vc-weapon, .vc-crew-card { cursor: pointer; pointer-events: auto; }
+  .vc-weapon.locked { opacity: .4; }
+  .vc-weapon.locked i { color: #ff6b6b; font-size: 10px; }
+  .vc-weapon.sel { outline: 2px solid #7dff9a; }
+  .vc-crew-card.cooling { opacity: .55; }
+  /* Phase 3: rank label above the respect bar; nitro meter under the
+  speedometer (car only); floating stunt popups; race overlay; touch
+  weapon chip (top 240px clears the toast, dialog and buttons). */
+  .vc-rank { font-size: 11px; font-weight: 800; color: #ffc93c; margin-bottom: 2px; letter-spacing: .5px; }
+  .vc-nitro { width: 170px; height: 10px; background: rgba(255,255,255,.2); border-radius: 5px; margin: 4px 0 4px auto; overflow: hidden; position: relative; display: none; }
+  .vc-nitro div { height: 100%; background: linear-gradient(90deg, #ff8c1a, #ffc93c); }
+  .vc-nitro span { position: absolute; right: 4px; top: -1px; font-size: 8px; font-weight: 900; color: #14101f; text-shadow: none; }
+  .vc-nitro.boosting div { background: linear-gradient(90deg, #ff5722, #ff8c1a); }
+  .vc-stunts { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; }
+  .vc-stunt { font-size: 22px; font-weight: 900; color: #7dff9a; text-shadow: 0 2px 0 rgba(0,0,0,.6); margin-bottom: 2px; white-space: nowrap; }
+  .vc-race { position: absolute; top: 24%; left: 50%; transform: translateX(-50%); font-size: 24px; font-weight: 900; color: #ffd700; text-shadow: 0 2px 0 rgba(0,0,0,.6); display: none; text-align: center; white-space: nowrap; }
+  .vc-weapon-chip { position: absolute; top: 240px; right: 12px; background: rgba(12,10,24,.7); border: 1px solid #ffc93c; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 800; color: #fff7e8; display: none; pointer-events: auto; cursor: pointer; }
+  body.vc-touch .vc-weapon-chip { display: block; }
   .vc-bottom-left { position: absolute; left: 12px; bottom: 12px; }
   .vc-district { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
   .vc-respect { width: 180px; height: 5px; background: rgba(255,255,255,.2); border-radius: 3px; margin-bottom: 6px; overflow: hidden; }
@@ -88,7 +109,7 @@
     body.vc-touch .vc-bottom-left { bottom: 128px; }
     body.vc-touch .vc-minimap { width: 96px; height: 96px; }
     body.vc-touch .vc-bars, body.vc-touch .vc-respect { width: 96px; }
-    body.vc-touch .vc-district, body.vc-touch .vc-respect { display: none; }
+    body.vc-touch .vc-district, body.vc-touch .vc-respect, body.vc-touch .vc-rank { display: none; }
   }
   .vc-shop, .vc-phone { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); background: rgba(12,10,24,.92); border: 2px solid #ffc93c; border-radius: 8px; padding: 14px 18px; display: none; font-size: 14px; pointer-events: auto; }
   .vc-shop b, .vc-phone b { display: block; color: #ffc93c; font-size: 16px; margin-bottom: 6px; }

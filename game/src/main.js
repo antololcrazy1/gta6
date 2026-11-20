@@ -11,7 +11,7 @@
 import { BEST_KEY, MISSIONS_KEY, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld, EVENT_MISSION, EVENT_OVER, EVENT_PICKUP, EVENT_SHOT } from './world.js';
-import { ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_INTERACT, ACTION_MUTE, ACTION_PAUSE, ACTION_PHONE, ACTION_RADIO, ACTION_SHOOT, ACTION_SLOT1, ACTION_SLOT2, ACTION_SLOT3, IS_TOUCH, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_INTERACT, ACTION_MUTE, ACTION_PAUSE, ACTION_PHONE, ACTION_RADIO, ACTION_SHOOT, ACTION_SLOT1, ACTION_SLOT2, ACTION_SLOT3, ACTION_SLOT4, ACTION_WEAPON, IS_TOUCH, createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createRadio } from './radio.js';
 import { createRenderer3D } from './vc3d.js';
@@ -153,6 +153,15 @@ function runGame() {
       if (actions & ACTION_SLOT1) { const r = world.phone.start(st, 'courier'); announce(r.ok ? 'Courier job started.' : r.msg); }
       else if (actions & ACTION_SLOT2) { const r = world.phone.start(st, 'vigilante'); announce(r.ok ? 'Vigilante job started.' : r.msg); }
       else if (actions & ACTION_SLOT3) { const r = world.phone.start(st, 'racer'); announce(r.ok ? 'Racer job started.' : r.msg); }
+      else if (actions & ACTION_SLOT4) { const r = world.phone.start(st, 'repo'); announce(r.ok ? 'Repo job started.' : r.msg); }
+    }
+    // Phase 3: crew abilities on 1/2/3 when no panel is open (the shop and
+    // the phone claim those keys while open), and V cycles weapons.
+    if (screen === 'play' && !st.shop.open && !st.phone.open) {
+      if (actions & ACTION_SLOT1) { const r = world.useCrew('mira'); announce(r.msg); }
+      else if (actions & ACTION_SLOT2) { const r = world.useCrew('lio'); announce(r.msg); }
+      else if (actions & ACTION_SLOT3) { const r = world.useCrew('kiki'); announce(r.msg); }
+      if (actions & ACTION_WEAPON) { const r = world.cycleWeapon(); announce(r.msg); }
     }
     if (actions & ACTION_INTERACT) {
       if (screen === 'play' && st.shop.near) { const open = world.shop.toggle(st); announce(open ? 'Sunset Arms & Paint — 1 armor, 2 ammo, 3 paint.' : 'Shop closed.'); }
@@ -165,7 +174,7 @@ function runGame() {
       // (see step()), exactly like the shop.
       if (screen === 'play') {
         const open = world.phone.toggle();
-        announce(open ? 'Phone open. 1 Courier, 2 Vigilante, 3 Racer.' : 'Playing.');
+        announce(open ? 'Phone open. 1 Courier, 2 Vigilante, 3 Racer, 4 Repo.' : 'Playing.');
         return;
       }
       if (screen === 'paused') { screen = 'play'; announce('Playing.'); return; }
@@ -223,6 +232,9 @@ function runGame() {
     const beforeShots = st.shotsFired;
     const ctrl = {
       move, sprint: input.held.sprint,
+      // Shift = sprint on foot / BOOST in a car; Space = handbrake in a car.
+      boost: input.held.sprint || input.touch.boost,
+      handbrake: input.held.handbrake || input.touch.handbrake,
       shoot: pendingShoot || input.mouse.down || input.touch.shooting,
       aimAngle, enter: pendingEnter,
     };
@@ -267,6 +279,10 @@ function runGame() {
       best, hasSave: !!saveData,
       saveMission: saveData ? (saveData.missionsDone || 0) + 1 : 1,
       saveMoney: saveData ? saveData.money : 0,
+      // Phase 3: crew cards / weapon slots are tappable in the HUD.
+      onCrew: (id) => { const r = world.useCrew(id); announce(r.msg); },
+      onWeapon: (id) => { const r = world.selectWeapon(id); announce(r.msg); },
+      onWeaponCycle: () => { const r = world.cycleWeapon(); announce(r.msg); },
     });
     // USE button: only in play, near the shop, while it is closed.
     input.setUseVisible(screen === 'play' && world.state.shop.near && !world.state.shop.open);

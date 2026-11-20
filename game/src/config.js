@@ -19,6 +19,11 @@ export const CAR = { length: 54, width: 28, accel: 336, brake: 496, maxSpeed: 44
 export const WANTED_DECAY = 14; // seconds hidden with no crime before a star drops (was 18: mission 4 was near-impossible)
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
+// Nitro boost (v6.5, Phase 3): hold BOOST to burn the meter for +35% top
+// speed and +50% accel; it refills while you drive normally. Handbrake
+// doubles the turn rate and bleeds speed for sharp turns / drifts.
+export const NITRO = { max: 100, drain: 30, refill: 8, boostMul: 1.35, accelMul: 1.5 };
+
 // Police helicopter: circles the player once the heat hits 4 stars.
 export const HELI = { radius: 180, orbitSpeed: 0.55, rotorSpeed: 42, spotlight: 190 };
 

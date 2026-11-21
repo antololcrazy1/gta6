@@ -128,5 +128,24 @@ export function createGang(random) {
       turf: GANG_TURF.map((t, i) => ({ name: t.name, cars: state.gangCars.filter((c) => c.turf === i).length })),
     };
   }
-  return { reset, update, spawnCar, ensureTurfCars, destroyCar, debug };
+  // Round 7: which turf the player is standing in (or nearest to), and
+  // how many Viper cars hold each turf — the HUD and the playtest use
+  // this instead of recomputing the distances themselves.
+  function nearestTurf(x, y) {
+    let best = null;
+    let bd = Infinity;
+    for (const t of GANG_TURF) {
+      const d = dist(x, y, t.x, t.y) - t.r;
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best ? { name: best.name, x: best.x, y: best.y, r: best.r, inside: bd <= 0 } : null;
+  }
+  function turfStatus(state) {
+    return GANG_TURF.map((t, i) => ({
+      name: t.name,
+      cars: state.gangCars.filter((c) => c.turf === i).length,
+      playerInside: dist(state.player.x, state.player.y, t.x, t.y) < t.r,
+    }));
+  }
+  return { reset, update, spawnCar, ensureTurfCars, destroyCar, debug, nearestTurf, turfStatus };
 }

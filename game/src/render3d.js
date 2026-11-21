@@ -5,7 +5,11 @@
 import * as THREE from 'three';
 import { ROADS_V, ROADS_H } from './world.js';
 import { SKY, sunHeight } from './weather.js';
-import { WORLD } from './config.js';
+import { CAMERA, SHADOWS, WORLD } from './config.js';
+import { createChaseCamera, cameraInside3D } from './camera.js';
+import { buildPedRig, pedVariation, poseRig } from './pedrig.js';
+import { facadePlan, facadeTexture, rooftopKit, facadeCacheSize } from './facades.js';
+import { createShadowRig, shadowFlags } from './shadows.js';
 
 const matCache = new Map();
 function mat(color, opts) {
@@ -26,21 +30,26 @@ function hexLerp(a, b, t) {
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  // Round 7: real shadow mapping. PCF soft shadows, and the sun light
+  // itself lives in the shadow rig so its shadow camera can follow the
+  // player instead of covering the whole map at once.
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#ff7a3c');
   scene.fog = new THREE.Fog(0xe88a5a, 1500, 9000);
   const camera = new THREE.PerspectiveCamera(68, 1280 / 720, 1, 20000);
   const hemi = new THREE.HemisphereLight(0xffd9a0, 0x3a2a4a, 0.9);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffb36b, 1.6);
-  sun.position.set(-3000, 800, 2000);
-  scene.add(sun);
+  const shadowRig = createShadowRig(scene, SHADOWS);
+  const chaseCam = createChaseCamera(CAMERA);
   const amb = new THREE.AmbientLight(0x804060, 0.35);
   scene.add(amb);
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD.width + 6000, WORLD.height + 2000), mat(0x7a7f6a));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(WORLD.width / 2 - 2000, -1, WORLD.height / 2);
+  shadowFlags(ground, 'ground');
   scene.add(ground);
   const sand = new THREE.Mesh(new THREE.PlaneGeometry(1000, WORLD.height + 2000), mat(0xe8c98f));
   sand.rotation.x = -Math.PI / 2;
@@ -59,7 +68,9 @@ export function createScene(canvas) {
   const dashMat = new THREE.MeshBasicMaterial({ color: 0xd8d8c8 });
   for (const x of ROADS_V) {
     const r = new THREE.Mesh(new THREE.PlaneGeometry(150, WORLD.height), roadMat);
-    r.rotation.x = -Math.PI / 2; r.position.set(x, 1, WORLD.height / 2); scene.add(r);
+    r.rotation.x = -Math.PI / 2; r.position.set(x, 1, WORLD.height / 2);
+    r.receiveShadow = true;
+    scene.add(r);
     for (let y = 700; y < WORLD.height; y += 420) {
       const d = new THREE.Mesh(new THREE.PlaneGeometry(8, 90), dashMat);
       d.rotation.x = -Math.PI / 2; d.position.set(x, 2, y); scene.add(d);
@@ -67,7 +78,9 @@ export function createScene(canvas) {
   }
   for (const y of ROADS_H) {
     const r = new THREE.Mesh(new THREE.PlaneGeometry(WORLD.width, 150), roadMat);
-    r.rotation.x = -Math.PI / 2; r.position.set(WORLD.width / 2, 1, y); scene.add(r);
+    r.rotation.x = -Math.PI / 2; r.position.set(WORLD.width / 2, 1, y);
+    r.receiveShadow = true;
+    scene.add(r);
     for (let x = 1200; x < WORLD.width; x += 420) {
       const d = new THREE.Mesh(new THREE.PlaneGeometry(90, 8), dashMat);
       d.rotation.x = -Math.PI / 2; d.position.set(x, 2, y); scene.add(d);
@@ -82,43 +95,54 @@ export function createScene(canvas) {
   sunGlow.lookAt(5000, 500, WORLD.height / 2);
   scene.add(sunGlow);
 
-  let buildingMesh = null;
+  // Round 7: buildings are grouped by facade key and drawn as one
+  // instanced mesh per distinct facade, each with its own procedural
+  // canvas texture (window grid, floor bands, door, signage band,
+  // material by type). Rooftop kit — AC boxes, water towers, antennas,
+  // parapets — is instanced alongside. Every building mesh casts and
+  // receives real shadows.
+  let buildingMeshes = [];
   let roofMesh = null;
   let signMesh = null;
   let trunkMesh = null;
   let leafMesh = null;
   let parkMeshes = [];
-  function windowTexture() {
-    const cv = document.createElement('canvas');
-    cv.width = 128; cv.height = 128;
-    const g = cv.getContext('2d');
-    g.fillStyle = '#ffffff';
-    g.fillRect(0, 0, 128, 128);
-    g.fillStyle = '#2a2f45';
-    for (let y = 14; y < 120; y += 26) {
-      for (let x = 12; x < 120; x += 26) {
-        if (((x + y) / 26) % 3 !== 0) g.fillRect(x, y, 14, 16);
-      }
-    }
-    const tex = new THREE.CanvasTexture(cv);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    return tex;
+  function facadeKeyOf(plan) {
+    const litBucket = plan.litRatio < 0.45 ? 0 : plan.litRatio < 0.65 ? 1 : 2;
+    return `${plan.material.wall}|${plan.material.windows}|${plan.floors}|${plan.accent}|${litBucket}`;
   }
   function buildCity(state) {
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
-    buildingMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0xffffff, map: windowTexture() }), state.buildings.length);
+    const groups = new Map();
+    for (const b of state.buildings) {
+      const plan = facadePlan(b);
+      const key = facadeKeyOf(plan);
+      let g = groups.get(key);
+      if (!g) { g = { plan, list: [] }; groups.set(key, g); }
+      g.list.push(b);
+    }
+    for (const g of groups.values()) {
+      const mesh = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial({ map: facadeTexture(g.plan) }),
+        g.list.length,
+      );
+      g.list.forEach((b, i) => {
+        dummy.position.set(b.x + b.w / 2, b.ht / 2, b.y + b.h / 2);
+        dummy.scale.set(b.w, b.ht, b.h);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      });
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.instanceMatrix.needsUpdate = true;
+      scene.add(mesh);
+      buildingMeshes.push(mesh);
+    }
     const roofs = state.buildings.filter((b) => b.pitched);
     roofMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 4), new THREE.MeshLambertMaterial({ color: 0xffffff }), Math.max(1, roofs.length));
-    state.buildings.forEach((b, i) => {
-      dummy.position.set(b.x + b.w / 2, b.ht / 2, b.y + b.h / 2);
-      dummy.scale.set(b.w, b.ht, b.h);
-      dummy.rotation.set(0, 0, 0);
-      dummy.updateMatrix();
-      buildingMesh.setMatrixAt(i, dummy.matrix);
-      buildingMesh.setColorAt(i, col.set(b.color));
-    });
     roofs.forEach((b, i) => {
       dummy.position.set(b.x + b.w / 2, b.ht + b.ht * 0.22, b.y + b.h / 2);
       dummy.scale.set(b.w * 0.78, b.ht * 0.45, b.h * 0.78);
@@ -127,8 +151,84 @@ export function createScene(canvas) {
       roofMesh.setMatrixAt(i, dummy.matrix);
       roofMesh.setColorAt(i, col.set(b.roof));
     });
-    scene.add(buildingMesh);
+    roofMesh.castShadow = true;
+    roofMesh.receiveShadow = true;
     scene.add(roofMesh);
+    // Rooftop kit, instanced: parapet rims on flat roofs, AC boxes,
+    // water towers and antennas from each building's rooftopKit plan.
+    const flats = state.buildings.filter((b) => !b.pitched);
+    const kits = state.buildings.map((b) => rooftopKit(b));
+    let acCount = 0;
+    let waterCount = 0;
+    let antennaCount = 0;
+    for (const k of kits) { acCount += k.ac.length; if (k.waterTower) waterCount += 1; if (k.antenna) antennaCount += 1; }
+    const parapet = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat(0x5a5a5a), Math.max(1, flats.length * 4));
+    flats.forEach((b, i) => {
+      const top = b.ht + 3;
+      const edges = [
+        [b.x + b.w / 2, top, b.y, b.w + 8, 6, 6],
+        [b.x + b.w / 2, top, b.y + b.h, b.w + 8, 6, 6],
+        [b.x, top, b.y + b.h / 2, 6, 6, b.h + 8],
+        [b.x + b.w, top, b.y + b.h / 2, 6, 6, b.h + 8],
+      ];
+      edges.forEach((e, j) => {
+        dummy.position.set(e[0], e[1], e[2]);
+        dummy.scale.set(e[3], e[4], e[5]);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        parapet.setMatrixAt(i * 4 + j, dummy.matrix);
+      });
+    });
+    parapet.castShadow = true;
+    scene.add(parapet);
+    if (acCount > 0) {
+      const acMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat(0x9aa0a8), acCount);
+      let ai = 0;
+      state.buildings.forEach((b, bi) => {
+        for (const unit of kits[bi].ac) {
+          dummy.position.set(b.x + unit.fx * b.w, b.ht + unit.size * 0.3, b.y + unit.fy * b.h);
+          dummy.scale.set(unit.size, unit.size * 0.6, unit.size);
+          dummy.rotation.set(0, 0, 0);
+          dummy.updateMatrix();
+          acMesh.setMatrixAt(ai, dummy.matrix);
+          ai += 1;
+        }
+      });
+      acMesh.castShadow = true;
+      scene.add(acMesh);
+    }
+    if (waterCount > 0) {
+      const tankMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 10), mat(0x8a6a42), waterCount);
+      let wi = 0;
+      state.buildings.forEach((b, bi) => {
+        const wt = kits[bi].waterTower;
+        if (!wt) return;
+        dummy.position.set(b.x + wt.fx * b.w, b.ht + 34, b.y + wt.fy * b.h);
+        dummy.scale.set(26, 44, 26);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        tankMesh.setMatrixAt(wi, dummy.matrix);
+        wi += 1;
+      });
+      tankMesh.castShadow = true;
+      scene.add(tankMesh);
+    }
+    if (antennaCount > 0) {
+      const antMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(2, 4, 1, 6), mat(0x222222), antennaCount);
+      let ni = 0;
+      state.buildings.forEach((b, bi) => {
+        const an = kits[bi].antenna;
+        if (!an) return;
+        dummy.position.set(b.x + an.fx * b.w, b.ht + an.height / 2, b.y + an.fy * b.h);
+        dummy.scale.set(1, an.height, 1);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        antMesh.setMatrixAt(ni, dummy.matrix);
+        ni += 1;
+      });
+      antMesh.castShadow = true;
+      scene.add(antMesh);
+    }
     signMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), state.signs.length);
     state.signs.forEach((s, i) => {
       dummy.position.set(s.x, 60, s.y);
@@ -201,22 +301,22 @@ export function createScene(canvas) {
       g.userData.body = body;
       g.userData.tail = tail;
       g.userData.stripe = stripe;
+      // Round 7: cars cast and receive real shadows.
+      g.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
       scene.add(g);
       carGroups.set(car.id, g);
     }
     return g;
   }
+  // Round 7: pedestrians are human rigs now (see pedrig.js) — thigh,
+  // calf and shoe, arms that counter-swing, hair or a hat, per-ped
+  // height and build. One rig per pedestrian index, posed every frame.
   const pedGroups = new Map();
   function pedGroup(ped, i) {
     const key = `p${i}`;
     let g = pedGroups.get(key);
     if (!g) {
-      g = new THREE.Group();
-      const body = box(26, 46, 18, ped.color);
-      body.position.y = 42;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(10, 10, 8), mat(0xe8b88a));
-      head.position.y = 78;
-      g.add(body, head);
+      g = buildPedRig(ped, pedVariation(ped));
       scene.add(g);
       pedGroups.set(key, g);
     }
@@ -259,6 +359,8 @@ export function createScene(canvas) {
   const legL = leg(-1), legR = leg(1);
   const armL = arm(-1), armR = arm(1);
   char.add(torso, head, cap);
+  // The player character casts a real shadow too.
+  char.traverse((m) => { if (m.isMesh) m.castShadow = true; });
   scene.add(char);
 
   const heli = new THREE.Group();
@@ -334,6 +436,9 @@ export function createScene(canvas) {
   let camYaw = 0;
   let camDist = 260;
   let camHeight = 110;
+  let lastCamSpot = null;
+  let lastCamHeight = 110;
+  let lastBuildings = [];
   const camTarget = new THREE.Vector3();
   const tmpV = new THREE.Vector3();
 
@@ -357,9 +462,10 @@ export function createScene(canvas) {
     const hor = phase === 'night' ? SKY.night.horizon : phase === 'sunset' ? SKY.sunset.horizon : SKY.day.horizon;
     scene.fog.color.copy(new THREE.Color(phase === 'night' ? SKY.night.fog : phase === 'sunset' ? SKY.sunset.fog : SKY.day.fog));
     const sh = sunHeight(st.weather.t);
-    sun.intensity = phase === 'night' ? 0.25 : 1.1 + sh;
-    sun.color.copy(new THREE.Color(phase === 'sunset' ? 0xff8a4a : phase === 'night' ? 0x8fa8d8 : 0xfff3c4));
-    sun.position.set(-3000, 400 + Math.max(0, sh) * 2200, 2000);
+    // Round 7: the shadow rig owns the sun light now — its direction,
+    // colour, intensity and shadow camera follow the player and the
+    // phase. The sky, fog and sun disc are still updated here.
+    shadowRig.update(st);
     hemi.intensity = phase === 'night' ? 0.35 : 0.9;
     amb.intensity = phase === 'night' ? 0.5 : 0.35;
     sunDisc.visible = phase !== 'night';
@@ -406,13 +512,15 @@ export function createScene(canvas) {
       g.position.set(ped.x, 0, ped.y);
       g.rotation.y = -ped.angle;
       g.visible = ped.alive;
+      if (ped.alive) poseRig(g, ped.walkPhase || 0, ped.moving !== false, !!ped.hurrying, time);
     });
     st.cops.forEach((cop, i) => {
       if (cop.inCar) return;
-      const g = pedGroup({ color: 0x2f6fd0 }, 1000 + i);
+      const g = pedGroup({ color: 0x2f6fd0, seed: 1000 + i, hat: 0x2f6fd0, trousers: 0x1c2733 }, 1000 + i);
       g.position.set(cop.x, 0, cop.y);
       g.rotation.y = -Math.atan2(p.y - cop.y, p.x - cop.x);
       g.visible = !cop.dead;
+      if (!cop.dead) poseRig(g, time * Math.PI * 4, true, false, time);
     });
     if (p.inCar) {
       char.visible = false;
@@ -508,9 +616,15 @@ export function createScene(canvas) {
     camDist += (wantDist - camDist) * Math.min(1, dt * 3);
     camHeight += (wantHeight - camHeight) * Math.min(1, dt * 3);
     const fx = Math.cos(heading), fy = Math.sin(heading);
-    const cx = p.x - fx * camDist;
-    const cy = p.y - fy * camDist;
-    camera.position.set(cx, camHeight, cy);
+    // Round 7: the chase camera collides with buildings. The boom is
+    // swept from the player toward the ideal spot and shortened to just
+    // short of the first wall, easing back out when the way clears, so
+    // the camera never sits inside a wall.
+    const camSpot = chaseCam.update(dt, p.x, p.y, heading, camDist, camHeight, st.buildings);
+    lastCamSpot = camSpot;
+    lastCamHeight = camHeight + (camSpot.lift || 0);
+    lastBuildings = st.buildings;
+    camera.position.set(camSpot.x, lastCamHeight, camSpot.y);
     camTarget.set(p.x + fx * 180, inCar ? 55 : 80, p.y + fy * 180);
     camera.lookAt(camTarget);
     const fov = 62 + Math.min(8, speed * 0.015) + (st.boosting ? 4 : 0);
@@ -518,5 +632,20 @@ export function createScene(canvas) {
     renderer.render(scene, camera);
   }
 
-  return { update, resize, renderer, scene, camera };
+  return {
+    update, resize, renderer, scene, camera,
+    // Round 7 diagnostics for the playtest: the camera boom state, the
+    // shadow rig state and how many distinct facades the city drew.
+    debug() {
+      return {
+        camera: chaseCam.debug(),
+        // 3D containment: the camera is only inside a building when it
+        // sits below the roof — above the roof it is out in the open.
+        cameraInsideBuilding: lastCamSpot ? !!cameraInside3D(lastCamSpot.x, lastCamSpot.y, lastCamHeight, lastBuildings) : false,
+        shadows: shadowRig.debug(),
+        facades: facadeCacheSize(),
+        buildingMeshes: buildingMeshes.length,
+      };
+    },
+  };
 }

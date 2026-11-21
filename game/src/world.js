@@ -7,7 +7,7 @@
 // advances one fixed step and returns event flags. Written fresh for the
 // v6 rebuild from the prose spec; the v5 facts it carries are re-expressed
 // in this file's own structure.
-import { CAR, COP_SPEED, CREW, DRIFT, GOLD_PAINT, HANDBRAKE, HELI, HIDDEN_PACKAGES, NEAR_MISS, NITRO, PALETTE, PLAYER, RANKS, STEP, WEAPONS, WORLD, WANTED_DECAY, HIDE_RADIUS, districtAt } from './config.js';
+import { CAR, COP_SPEED, CREW, DRIFT, GOLD_PAINT, HANDBRAKE, HELI, HIDDEN_PACKAGES, NEAR_MISS, NITRO, PALETTE, PED_WALK, PLAYER, RANKS, STEP, SUN_DIRECTION, WEAPONS, WORLD, WANTED_DECAY, HIDE_RADIUS, districtAt } from './config.js';
 import { MISSIONS, completeMission as completeMissionFlow, createMissionState, refreshMissionTarget, startMission as startMissionFlow } from './missions.js';
 import { GANG_TURF, createGang } from './gang.js';
 import { createWeather } from './weather.js';
@@ -96,6 +96,35 @@ export function createWorld(random) {
     parks.push({ x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 });
     for (let t = 0; t < 8; t += 1) palms.push({ x: range(random, b.x0 + 30, b.x1 - 30), y: range(random, b.y0 + 30, b.y1 - 30), r: range(random, 12, 20), park: true });
   }
+  const FACADE_ACCENTS = ['#ffd700', '#ff2fb3', '#2ecc71', '#3498db', '#e74c3c', '#f1c40f', '#00e5ff'];
+  const PED_TROUSERS = ['#2c3e50', '#34495e', '#5d4037', '#1c2733', '#6b7c93'];
+  const PED_HAIR = ['#1a1a1a', '#4a2c14', '#8a8a8a', '#d9a441', '#6b2d1a'];
+  const PED_HATS = ['#e74c3c', '#f1c40f', '#3498db', '#ecf0f1', '#2ecc71'];
+  function pedLook(random, beach) {
+    // Round 7: every pedestrian carries its own look so the rig layer
+    // can build a human that never looks cloned — height, build,
+    // trousers, hair or a hat, plus a walk phase the renderer animates.
+    return {
+      seed: random(),
+      height: 0.88 + random() * 0.24,
+      build: 0.85 + random() * 0.35,
+      trousers: beach ? '#e8c98f' : pick(random, PED_TROUSERS),
+      hair: pick(random, PED_HAIR),
+      hat: beach ? null : (random() < 0.3 ? pick(random, PED_HATS) : null),
+      walkPhase: random() * Math.PI * 2,
+      moving: true,
+      hurrying: false,
+    };
+  }
+  function buildingLook(random, type, ht) {
+    // Round 7: facade data lives with the building — its floor count
+    // follows its height and its accent varies, so the facade layer
+    // never gives two neighbours the same face.
+    return {
+      floors: Math.max(1, Math.min(14, Math.round(ht / 42))),
+      accent: pick(random, FACADE_ACCENTS),
+    };
+  }
   for (const b of blocks) {
     if (parkSet.has(b)) continue;
     const count = random() < 0.45 ? 2 : 1;
@@ -111,9 +140,11 @@ export function createWorld(random) {
       const pitched = type === 'house' || (type === 'shophouse' && pitchedLeft > 21);
       if (pitched) pitchedLeft -= 1;
       const ci = Math.floor(random() * PALETTE.building.length);
+      const ht = range(random, sz.ht[0], sz.ht[1]);
       buildings.push({
-        x: bx, y: by, w, h, ht: range(random, sz.ht[0], sz.ht[1]),
+        x: bx, y: by, w, h, ht,
         type, pitched, color: PALETTE.building[ci], roof: PALETTE.roof[ci], seed: random(),
+        ...buildingLook(random, type, ht),
       });
     }
   }
@@ -126,7 +157,8 @@ export function createWorld(random) {
       const pitched = t === 'house' && pitchedLeft > 0;
       if (pitched) pitchedLeft -= 1;
       const ci = Math.floor(random() * PALETTE.building.length);
-      buildings.push({ x: b.x0 + range(random, 0, Math.max(0, b.x1 - b.x0 - w)), y: b.y0 + range(random, 0, Math.max(0, b.y1 - b.y0 - h)), w, h, ht: range(random, sz.ht[0], sz.ht[1]), type: t, pitched, color: PALETTE.building[ci], roof: PALETTE.roof[ci], seed: random() });
+      const ht = range(random, sz.ht[0], sz.ht[1]);
+      buildings.push({ x: b.x0 + range(random, 0, Math.max(0, b.x1 - b.x0 - w)), y: b.y0 + range(random, 0, Math.max(0, b.y1 - b.y0 - h)), w, h, ht, type: t, pitched, color: PALETTE.building[ci], roof: PALETTE.roof[ci], seed: random(), ...buildingLook(random, t, ht) });
       typeLeft[t] -= 1;
     }
   }
@@ -171,6 +203,7 @@ export function createWorld(random) {
     taxi: { waiting: null, active: null, cooldown: 12, waitTimer: 0 },
     gang: { kills: 0, respawn: 0 },
     weather: weather.data, shop: shop.data, phone: phone.data,
+    sunDirection: SUN_DIRECTION.day,
     district: 'Beach', districtTimer: 0, drivebyAt: -1,
     nitro: NITRO.cap, boosting: false, driftMult: 0, driftScore: 0, drifting: false,
     crew: { mira: 0, lio: 0, kiki: 0, kikiUntil: 0 },
@@ -270,6 +303,7 @@ export function createWorld(random) {
         y: py,
         angle: range(random, 0, Math.PI * 2), speed: range(random, 30, 65), color: pick(random, PED_COLORS),
         name: pick(random, PED_NAMES), alive: true, flee: 0, change: range(random, 1, 4), health: 30, beach: false,
+        ...pedLook(random, false),
       });
     }
     for (let i = 0; i < 6; i += 1) {
@@ -277,6 +311,7 @@ export function createWorld(random) {
         x: range(random, 200, 800), y: range(random, 800, WORLD.height - 800),
         angle: range(random, 0, Math.PI * 2), speed: range(random, 25, 45), color: pick(random, PED_COLORS),
         name: pick(random, PED_NAMES), alive: true, flee: 0, change: range(random, 1, 4), health: 30, beach: true,
+        ...pedLook(random, true),
       });
     }
   }
@@ -593,6 +628,13 @@ export function createWorld(random) {
     for (const p of peds) {
       if (!p.alive) continue;
       if (p.fare) continue;
+      // Round 7: the walk cycle advances with the pedestrian's speed —
+      // about four steps a second at a normal walk, faster when fleeing —
+      // and the rig layer reads walkPhase, moving and hurrying.
+      const stepping = p.flee > 0 ? PED_WALK.stepsPerSecond * 1.6 : PED_WALK.stepsPerSecond;
+      p.walkPhase = (p.walkPhase || 0) + dt * Math.PI * stepping;
+      p.moving = true;
+      p.hurrying = p.flee > 0;
       p.change -= dt;
       if (p.flee > 0) {
         p.flee -= dt;
@@ -902,6 +944,10 @@ export function createWorld(random) {
     let events = 0;
     state.elapsed += dt;
     weather.update(dt);
+    // Round 7: the shadow rig reads the sun's direction from state so
+    // the shadow camera follows the player and the light matches the
+    // phase — low from the west at sunset, high at day.
+    state.sunDirection = SUN_DIRECTION[state.weather.phase] || SUN_DIRECTION.day;
     if (state.messageTimer > 0) state.messageTimer -= dt;
     if (state.missionFlash > 0) state.missionFlash -= dt;
     if (state.districtTimer > 0) state.districtTimer -= dt;

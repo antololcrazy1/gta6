@@ -68,6 +68,7 @@ export function createInput(canvas) {
     else if (event.code === 'KeyM') actions |= ACTION_MUTE;
     else if (event.code === 'KeyQ') actions |= ACTION_RADIO;
     else if (event.code === 'KeyR') actions |= ACTION_CONFIRM;
+    else if (event.code === 'KeyX') resetCam();
     else if (event.code === 'KeyC') actions |= ACTION_CONTINUE;
     else if (event.code === 'KeyV') actions |= ACTION_WEAPON;
     else if (event.code === 'Digit1') actions |= ACTION_SLOT1;
@@ -114,6 +115,10 @@ export function createInput(canvas) {
     cam.swipeX = x;
   }
   function swipeEnd(id) { if (cam.swipeId === id) cam.swipeId = null; }
+  // Round 7: X snaps the chase camera back behind the car — handy
+  // after a long look-around swipe, and the touch UI gets the same
+  // reset when the player double-taps the left half of the screen.
+  function resetCam() { cam.yaw = 0; }
   window.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') swipeStart(e.clientX, e.clientY, e.pointerId); });
   window.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') swipeMove(e.clientX, e.pointerId); });
   window.addEventListener('pointerup', (e) => swipeEnd(e.pointerId));
@@ -174,6 +179,7 @@ export function createInput(canvas) {
     easeCam(dt, driving) {
       if (driving) cam.yaw += (0 - cam.yaw) * Math.min(1, dt * 1.4);
     },
+    resetCam,
     takeActions() { const t = actions; actions = 0; return t; },
     queue,
   };

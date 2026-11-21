@@ -119,8 +119,27 @@ export function createPhone(random) {
   }
   function toggle() { data.open = !data.open; return data.open; }
   function reset() { data.open = false; data.job = null; }
+  // Round 7: walk away from a job with no payout, and a one-line
+  // summary of the active job for the HUD's mission panel.
+  function cancelJob(state) {
+    const job = data.job;
+    if (!job) return { ok: false, msg: 'No active job to cancel.' };
+    if (job.type === 'repo') {
+      const car = state.cars.find((c) => c.id === job.carId);
+      if (car) car.repo = false;
+    }
+    data.job = null;
+    state.message = `Side job cancelled — ${job.label}.`;
+    state.messageTimer = 3;
+    return { ok: true, msg: state.message };
+  }
+  function activeJobSummary() {
+    const job = data.job;
+    if (!job) return null;
+    return { type: job.type, label: job.label, timer: Math.ceil(job.timer || 0), pay: job.pay };
+  }
   function debug() {
     return { open: data.open, job: data.job ? { type: data.job.type, timer: Math.round(data.job.timer || 0) } : null };
   }
-  return { data, start, update, toggle, reset, onCarDestroyed, debug, jobs: PHONE_JOBS };
+  return { data, start, update, toggle, reset, onCarDestroyed, cancelJob, activeJobSummary, debug, jobs: PHONE_JOBS };
 }

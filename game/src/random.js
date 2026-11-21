@@ -47,3 +47,21 @@ export function intIn(random, min, max) {
 export function bell(random) {
   return (random() + random() + random() - 1.5) / 1.5;
 }
+
+// Round 7 helpers for the facade and ped-rig variety: a bell-curve
+// value centred on 0 (most peds near average height, a few tall or
+// short) and a weighted pick from [value, weight] pairs.
+export function gauss(random) {
+  return (random() + random() + random() + random() - 2) / 2;
+}
+
+export function weighted(random, pairs) {
+  let total = 0;
+  for (const [, w] of pairs) total += w;
+  let roll = random() * total;
+  for (const [value, w] of pairs) {
+    roll -= w;
+    if (roll <= 0) return value;
+  }
+  return pairs[pairs.length - 1][0];
+}

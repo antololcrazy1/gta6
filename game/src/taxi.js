@@ -35,7 +35,6 @@ export function createTaxi(random) {
     if (!taxi) return;
     if (taxi.cooldown > 0) taxi.cooldown -= dt;
     const player = state.player;
-
     if (taxi.waiting) {
       const ped = taxi.waiting;
       taxi.waitTimer -= dt;
@@ -98,5 +97,21 @@ export function createTaxi(random) {
     state.message = 'A customer is waving for a taxi!';
     state.messageTimer = 3;
   }
-  return { reset, update };
+  // Round 7: a one-line summary of the fare state for the HUD and the
+  // playtest — waiting, active with its destination and timer, or idle.
+  function fareSummary(state) {
+    const taxi = state.taxi;
+    if (!taxi) return { status: 'idle' };
+    if (taxi.waiting) return { status: 'waiting', waitTimer: Math.ceil(taxi.waitTimer) };
+    if (taxi.active) {
+      return {
+        status: 'active',
+        dest: taxi.active.dest.label,
+        timer: Math.ceil(taxi.active.timer),
+        pay: taxi.active.pay,
+      };
+    }
+    return { status: 'idle', cooldown: Math.ceil(taxi.cooldown) };
+  }
+  return { reset, update, fareSummary };
 }

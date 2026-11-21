@@ -1,12 +1,33 @@
-// Staged screenshots for the v6 rebuild, behind ?shot=chase|play|heist|end
-// &seed=19. Each plays the real rules forward from a fresh world for a
-// fixed time, steered by a driving autopilot, so the frame is what a short
-// game really looks like and the same seed always gives the same frame.
-// Hero first: a golden-hour sunset five-star chase down the beach boulevard
-// with cop cars, the police helicopter and dense traffic in frame.
+// Staged screenshots for the v6 round-7 revision, behind
+// ?shot=chase|play|heist|end &seed=23. Each plays the real rules forward
+// from a fresh world for a fixed time, steered by a driving autopilot,
+// so the frame is what a short game really looks like and the same seed
+// always gives the same frame. The shots.json manifest (round 7) is a
+// richer format now: each entry carries its wanted level, its time of
+// day and a staging note, and the hero chase shot is flagged. The
+// staging driver reads the manifest and turns each entry into a query
+// with manifestEntryToQuery(); the game itself stages by name, with an
+// optional staging object that overrides the defaults below.
+// Hero first: a golden-hour sunset five-star chase down the beach
+// boulevard with cop cars, the police helicopter and dense traffic in
+// frame.
 import { STEP } from './config.js';
 import { EVENT_OVER } from './world.js';
 import { SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './hud.js';
+
+// A manifest entry (shots.json) to the URL query that stages it. The
+// entry's name is the output file (1-chase.jpg); the shot is the stem
+// after the leading number and dash, and the seed comes from the entry.
+export function manifestEntryToQuery(entry) {
+  const stem = String(entry.name || '').replace(/^\d+-/, '').replace(/\.(jpg|jpeg|png)$/i, '');
+  const shot = entry.shot || stem;
+  const seed = entry.seed ?? 23;
+  return `?shot=${shot}&seed=${seed}`;
+}
+
+// The four shot names the staging driver may ask for, newest first —
+// the same order the manifest lists them in.
+export const SHOT_ORDER = ['chase', 'play', 'heist', 'end'];
 
 function drivePilot(state, roadY, heading) {
   const car = state.cars.find((c) => c.id === state.player.carId);
@@ -30,7 +51,8 @@ function putPlayerInCar(world, x, y, angle) {
   return car;
 }
 
-export function stageShot(name, world) {
+export function stageShot(name, world, staging) {
+  const stage = staging || {};
   world.reset();
   const st = world.state;
   if (name !== 'play' && name !== 'chase' && name !== 'end' && name !== 'heist') {
@@ -38,16 +60,20 @@ export function stageShot(name, world) {
     return { screen: SCREEN_TITLE, best: 1250 };
   }
   if (name === 'chase') {
-    world.weather.force('sunset', false);
+    // The manifest says sunset at 5 stars; honour an explicit staging
+    // override when the driver passes one.
+    const wanted = stage.wanted ?? 5;
+    const timeOfDay = stage.timeOfDay || 'sunset';
+    world.weather.force(timeOfDay, false);
     putPlayerInCar(world, 3400, 3050, Math.PI);
-    world.addWanted(5, true);
+    world.addWanted(wanted, true);
     for (let i = 0; i < 7 / STEP; i += 1) {
       const ev = world.step(STEP, drivePilot(st, 3050, -1), false);
       if (ev & EVENT_OVER) break;
       const car = st.cars.find((c) => c.id === st.player.carId);
       if (car) { car.speed = Math.max(car.speed, 380); car.health = 100; }
       st.player.health = 100;
-      if (st.wanted < 5) st.wanted = 5;
+      if (st.wanted < wanted) st.wanted = wanted;
     }
     // Pull two pursuit cars into the frame flanking the road ahead so the
     // chase reads, without sitting between the camera and the player car.
@@ -61,24 +87,26 @@ export function stageShot(name, world) {
       cop.car.speed = 320;
       cop.x = cop.car.x; cop.y = cop.car.y;
     });
-    st.message = '5 stars — lose the Vice Coast PD!';
+    st.message = `${wanted} stars — lose the Vice Coast PD!`;
     st.messageTimer = 4;
     return { screen: SCREEN_PLAY, best: st.money };
   }
   if (name === 'play') {
-    world.weather.force('day', false);
+    const wanted = stage.wanted ?? 2;
+    const timeOfDay = stage.timeOfDay || 'day';
+    world.weather.force(timeOfDay, false);
     putPlayerInCar(world, 2400, 2550, 0);
     world.startMission(1); // Package Run: collect around Palm Row.
-    world.addWanted(2, true);
+    world.addWanted(wanted, true);
     for (let i = 0; i < 8 / STEP; i += 1) {
       const ev = world.step(STEP, drivePilot(st, 2550, 1), false);
       if (ev & EVENT_OVER) break;
       const car = st.cars.find((c) => c.id === st.player.carId);
       if (car) { car.speed = Math.max(car.speed, 320); car.health = 100; }
       st.player.health = 100;
-      if (st.wanted < 2) st.wanted = 2;
+      if (st.wanted < wanted) st.wanted = wanted;
     }
-    st.message = 'Package Run — 2 stars on you!';
+    st.message = `Package Run — ${wanted} stars on you!`;
     st.messageTimer = 4;
     return { screen: SCREEN_PLAY, best: st.money };
   }

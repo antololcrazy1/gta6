@@ -65,6 +65,26 @@ export function missionTimerFor(missionIndex) {
   return 0;
 }
 
+// Round 7: the story chain's total payout, computed from the data
+// instead of written as a fixed number, and a progress summary the HUD
+// draws in the mission panel.
+export function totalReward() {
+  return MISSIONS.reduce((sum, m) => sum + m.reward, 0);
+}
+
+export function missionProgress(state) {
+  const done = state.missionsDone || 0;
+  const total = MISSIONS.length;
+  const current = state.missionIndex < total ? MISSIONS[state.missionIndex] : null;
+  return {
+    done, total,
+    currentName: current ? current.name : 'Free roam',
+    currentReward: current ? current.reward : 0,
+    totalReward: totalReward(),
+    stageText: state.missionText || '',
+  };
+}
+
 export function startMission(state, i, landmarks, addWanted) {
   state.missionIndex = i;
   state.missionStage = 0;

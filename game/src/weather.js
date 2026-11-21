@@ -1,12 +1,29 @@
 // Day/night + weather for the 3D rebuild. The clock runs a 240 s day and
 // the 3D layer reads phase, sun height and sky colours to light the scene.
 // Rain comes in bursts and makes the roads slick. Pure rules — no drawing.
-import { DAY_LENGTH, DAY_PHASES } from './config.js';
+import { DAY_LENGTH, DAY_PHASES, SUN_DIRECTION } from './config.js';
 
 function phaseFor(t) {
   const c = ((t % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
   for (const p of DAY_PHASES) if (c >= p.from && c < p.to) return p.name;
   return 'day';
+}
+
+// Round 7: the shadow rig asks the weather where the sun is. The
+// direction is low and from the west at sunset (long shadows to the
+// east), high at midday, and dim from the north at night.
+export function sunVector(t) {
+  const phase = phaseFor(t);
+  const dir = SUN_DIRECTION[phase] || SUN_DIRECTION.day;
+  const len = Math.hypot(dir.x, dir.y, dir.z) || 1;
+  return { x: dir.x / len, y: dir.y / len, z: dir.z / len, phase };
+}
+
+// Golden hour is the last stretch of sunset before night — the light
+// the hero screenshot is staged in.
+export function isGoldenHour(t) {
+  const c = ((t % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
+  return c >= 150 && c < 170;
 }
 
 export function phaseBlend(t) {

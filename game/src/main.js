@@ -4,7 +4,10 @@
 // window.__shotReady. The shop (E), the phone (P — it pauses the game
 // while open), save / continue (C on the title), crew abilities (1/2/3),
 // weapon cycle (V), nitro (Shift) and handbrake (Space, in the car) all
-// live here. Written fresh for the v6 rebuild.
+// live here. Round 7 adds the camera-collision chase cam, human ped
+// rigs, real PCFSoft shadows and procedural facades — the renderer owns
+// those, this file only drives the loop and wires their sounds.
+// Written fresh for the v6 rebuild.
 import * as THREE from 'three';
 import { BEST_KEY, MISSIONS_KEY, STEP, VIEW, WORLD } from './config.js';
 import { createRandom } from './random.js';
@@ -53,6 +56,7 @@ function runShot(name) {
     phone: world.phone,
     weather: world.weather,
     scene: scene3d,
+    sceneDebug: () => scene3d.debug(),
     get heli() { return world.state.heli; },
   };
   let painted = 0;
@@ -79,6 +83,7 @@ function runGame() {
   let pendingShoot = false;
   let pendingEnter = false;
   let spaceDown = false;
+  let wasDrifting = false;
   window.addEventListener('keydown', (e) => { if (e.code === 'Space') spaceDown = true; });
   window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = false; });
 
@@ -194,6 +199,10 @@ function runGame() {
     if (events & EVENT_PICKUP) audio.pickup();
     if (events & EVENT_MISSION) audio.mission();
     if (st.boosting) audio.boost();
+    // Round 7: a skid sound when a drift starts, so the drift payout
+    // the world awards has a sound to match it.
+    if (st.drifting && !wasDrifting) audio.skid();
+    wasDrifting = st.drifting;
     if (st.wanted > prevWanted) audio.siren(0, true);
     prevWanted = st.wanted;
     if (events & EVENT_OVER) endRun();
@@ -202,14 +211,19 @@ function runGame() {
 
   function frame(now) {
     requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
+    // Round 7: the renderer gets the real frame delta, not the fixed
+    // step — its camera boom, yaw and height easings are per-frame
+    // smoothers, and on a slow frame they must catch up in wall time
+    // instead of lagging a fixed 1/60 s behind.
+    const frameDt = Math.min((now - last) / 1000, MAX_FRAME);
+    accumulator += frameDt;
     last = now;
     handleActions();
     if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
       while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) { step(); accumulator -= STEP; }
     } else accumulator = 0;
     const saveData = hasSave() ? loadSave() : null;
-    scene3d.update(world.state, STEP, time, input.cam.yaw, screen);
+    scene3d.update(world.state, frameDt, time, input.cam.yaw, screen);
     hud.draw(world.state, screen, best, { time, muted: audio.muted, radio: radio.name(), hasSave: !!saveData, saveData });
   }
 
@@ -249,6 +263,7 @@ function runGame() {
     phone: world.phone,
     weather: world.weather,
     save: { hasSave, loadSave },
+    sceneDebug: () => scene3d.debug(),
     get heli() { return world.state.heli; },
   };
   announce('Vice Coast. Press Space or click to start.');

@@ -11,6 +11,19 @@ export const SHOP_ITEMS = [
   { id: 'paint', name: 'Car Paint', price: 150, desc: 'next paint colour' },
 ];
 
+// Round 7: every paint colour has a name, so the shop can say what you
+// just bought instead of only showing a hex code.
+export const PAINT_NAMES = {
+  '#e74c3c': 'Vice Red',
+  '#f1c40f': 'Taxi Yellow',
+  '#3498db': 'Ocean Blue',
+  '#2ecc71': 'Palm Green',
+  '#9b59b6': 'Neon Purple',
+  '#ff6b9d': 'Sunset Pink',
+  '#ffd700': 'Kingpin Gold',
+};
+export function paintName(color) { return PAINT_NAMES[color] || color; }
+
 export function createShop() {
   const data = { x: SHOP_POS.x, y: SHOP_POS.y, label: SHOP_POS.label, open: false, near: false, paintIndex: 0 };
   function isNear(state) {
@@ -46,6 +59,10 @@ export function createShop() {
       const choices = paintChoices(state);
       data.paintIndex = (data.paintIndex + 1) % choices.length;
       car.color = choices[data.paintIndex];
+      state.money -= item.price;
+      state.message = `Bought ${item.name} for $${item.price} — now ${paintName(car.color)}.`;
+      state.messageTimer = 3;
+      return { ok: true, msg: state.message };
     }
     state.money -= item.price;
     state.message = `Bought ${item.name} for $${item.price}.`;

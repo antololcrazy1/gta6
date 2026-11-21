@@ -6,7 +6,7 @@
 // buttons accept taps — every confirmation works by touch as well as keys.
 import { clockFor } from './weather.js';
 import { RANKS, WEAPONS } from './config.js';
-import { MISSIONS } from './missions.js';
+import { MISSIONS, missionProgress } from './missions.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_BRIEF = 'brief';
@@ -115,11 +115,16 @@ export function createHud(root) {
     hud.style.display = screen === SCREEN_PLAY || screen === SCREEN_PAUSED ? 'block' : 'none';
     if (screen !== SCREEN_PLAY && screen !== SCREEN_PAUSED) { drawScreen(state, screen, best, opts); return; }
     const m = st.missionIndex < MISSIONS.length ? MISSIONS[st.missionIndex] : null;
+    const prog = missionProgress(st);
     const timer = st.missionTimer > 0 ? ` ⏱ ${Math.ceil(st.missionTimer)}s` : '';
+    // Round 7: the mission panel shows the real chain progress
+    // (missions done of 10) and the active phone job with its timer,
+    // so a side job never hides behind the story objective.
+    const job = st.phone.job ? ` · 📱 ${st.phone.job.label} ${Math.ceil(st.phone.job.timer || 0)}s` : '';
     const progress = m ? Math.min(100, Math.round(((st.missionStage + (st.collected || 0) * 0.1) / 3) * 100)) : 100;
     $('#vc-mission').innerHTML = m
-      ? `<b>${m.name}</b>${timer}<div class="vc-bar"><i style="width:${progress}%"></i></div><div>${st.missionText}</div>`
-      : `<b>Free roam</b><div>${st.missionText}</div>`;
+      ? `<b>${m.name}</b>${timer}<div class="vc-bar"><i style="width:${progress}%"></i></div><div>${st.missionText}</div><div class="vc-small">${prog.done}/${prog.total} missions · $${prog.totalReward} total${job}</div>`
+      : `<b>Free roam</b><div>${st.missionText}</div><div class="vc-small">${prog.done}/${prog.total} missions${job}</div>`;
     const police = st.policeList || [];
     $('#vc-police').innerHTML = police.length
       ? police.slice(0, 5).map((u) => `<div>🚔 ${u.name} · ${u.role} · ${u.dist}m</div>`).join('') + (police.length > 5 ? `<div>+${police.length - 5} more units</div>` : '')

@@ -17,6 +17,25 @@ export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
 export const HELI = { radius: 420, orbitSpeed: 0.5, rotorSpeed: 38, spotlight: 320 };
 
+// Round 7 — the four revised systems share their tuning here so the
+// renderer, the rules and the playtest all read the same numbers.
+export const CAMERA = { wallClearance: 26, pullInRate: 900, pullOutRate: 260, minBoom: 50, eyeHeight: 110 };
+export const SHADOWS = { mapSize: 2048, frustumHalf: 900, near: 100, far: 6000, bias: -0.0004, sunDistance: 2600 };
+// Sun direction per phase, as the unit vector FROM the sun toward the
+// scene (x east, y up, z south in world space). Sunset is low and from
+// the west so shadows stretch long to the east; day is higher.
+export const SUN_DIRECTION = {
+  day: { x: -0.45, y: 0.8, z: 0.4 },
+  sunset: { x: -0.85, y: 0.22, z: 0.3 },
+  night: { x: -0.3, y: 0.6, z: 0.5 },
+};
+export function sunDirectionFor(phase) { return SUN_DIRECTION[phase] || SUN_DIRECTION.day; }
+// Pedestrian variety: how many steps a second a walking pedestrian
+// takes, and the height/build spread the rig reads.
+export const PED_WALK = { stepsPerSecond: 4, swingWalk: 0.62, swingHurry: 0.85 };
+// Facade texture budget: one 256x256 canvas per distinct facade key.
+export const FACADE = { textureSize: 256, maxCache: 96 };
+
 export const NITRO = { cap: 100, drain: 30, refill: 8, speedBonus: 0.35, accelBonus: 0.5 };
 export const HANDBRAKE = { turnMult: 2, bleed: 600 };
 export const DRIFT = { minSpeed: 220, minYaw: 1.1, pay: 50, maxMult: 5 };

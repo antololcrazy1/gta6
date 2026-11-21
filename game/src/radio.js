@@ -65,6 +65,18 @@ export function createRadio(audio) {
       [0, 3, 7].forEach((n, i) => setTimeout(() => audio.note(midiToFreq(72 + n), 0.12, st.leadWave, st.leadVol), i * 90));
       return st.name;
     },
+    // Round 7: jump to a station by index (the HUD radio ticker uses
+    // this) and describe the current station in one object.
+    setStation(i) {
+      station = ((i % STATIONS.length) + STATIONS.length) % STATIONS.length;
+      step = 0;
+      acc = 0;
+      return STATIONS[station].name;
+    },
+    stationInfo() {
+      const st = STATIONS[station];
+      return { name: st.name, tag: st.tag, bpm: st.bpm, index: station, of: STATIONS.length };
+    },
     name() { return STATIONS[station].name; },
     tag() { return STATIONS[station].tag; },
     count() { return STATIONS.length; },

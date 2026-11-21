@@ -85,6 +85,10 @@ export function createAudio() {
     crash() { noise(0.25, 0.3, 500); tone(70, 0.2, 'sine', 0.2, 40); },
     boost() { noise(0.3, 0.15, 900); tone(120, 0.3, 'sawtooth', 0.08, 320); },
     drift() { noise(0.2, 0.12, 1600); },
+    // Round 7: a two-tone horn for traffic and a tyre skid that plays
+    // when a drift starts, so the drift payout has a sound to match.
+    horn() { tone(370, 0.25, 'square', 0.08); setTimeout(() => tone(466, 0.25, 'square', 0.08), 30); },
+    skid() { noise(0.45, 0.16, 1800); tone(900, 0.4, 'sine', 0.03, 500); },
     siren(dt, on) {
       if (!ensure() || muted) return;
       sirenTimer += dt;

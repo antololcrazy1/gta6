@@ -1,8 +1,9 @@
-// Sunset Arms & Paint: the shop by the Neon Hotel. Walk (or drive) within
-// 90 px and press E to open it: body armor $200 (+50 armor), an ammo box
-// $100 (+60 ammo), or a paint job $150 (cycles 6 colours for the car you
-// are in). Pure rules — the renderer draws the shop panel from state.shop.
-import { PAINTS, SHOP_POS } from './config.js';
+// Sunset Arms & Paint for the v6 rebuild: the shop beside the Neon Hotel.
+// Walk or drive within range and press E to open it: body armor $200
+// (+50 armor), an ammo box $100 (+60 ammo for the current weapon), or a
+// paint job $150 (cycles 6 colours for the car you are in, plus gold paint
+// once you reach the Kingpin rank). Pure rules — the HUD draws the panel.
+import { GOLD_PAINT, PAINTS, RANKS, SHOP_POS } from './config.js';
 
 export const SHOP_ITEMS = [
   { id: 'armor', name: 'Body Armor', price: 200, desc: '+50 armor (max 100)' },
@@ -14,7 +15,12 @@ export function createShop() {
   const data = { x: SHOP_POS.x, y: SHOP_POS.y, label: SHOP_POS.label, open: false, near: false, paintIndex: 0 };
   function isNear(state) {
     const p = state.player;
-    return Math.hypot(p.x - data.x, p.y - data.y) < 90;
+    return Math.hypot(p.x - data.x, p.y - data.y) < 160;
+  }
+  function paintChoices(state) {
+    const list = PAINTS.slice();
+    if (state.respect >= RANKS[4].at) list.push(GOLD_PAINT);
+    return list;
   }
   function update(state) {
     data.near = isNear(state);
@@ -37,12 +43,14 @@ export function createShop() {
     } else if (itemId === 'paint') {
       const car = state.cars.find((c) => c.id === state.player.carId);
       if (!car) return { ok: false, msg: 'Get in a car first, then buy paint.' };
-      data.paintIndex = (data.paintIndex + 1) % PAINTS.length;
-      car.color = PAINTS[data.paintIndex];
+      const choices = paintChoices(state);
+      data.paintIndex = (data.paintIndex + 1) % choices.length;
+      car.color = choices[data.paintIndex];
     }
     state.money -= item.price;
-    state.message = `Bought ${item.name} for $${item.price}.`; state.messageTimer = 3;
+    state.message = `Bought ${item.name} for $${item.price}.`;
+    state.messageTimer = 3;
     return { ok: true, msg: state.message };
   }
-  return { data, update, toggle, buy, items: SHOP_ITEMS };
+  return { data, update, toggle, buy, items: SHOP_ITEMS, paintChoices };
 }

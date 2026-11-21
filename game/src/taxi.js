@@ -1,33 +1,34 @@
-// Taxi fares: a side activity on top of the story missions. A random
-// pedestrian waves for a cab; pick them up in a car, drive them to one of 9
-// road intersections across the city within 45 seconds, and get paid $40–$80
-// plus respect. Pure rules, no drawing — the renderer marks the waiting fare.
-// v5 adds a ninth destination on Palm Row west.
+// Taxi fares for the v6 rebuild: a side activity on top of the story.
+// A random pedestrian waves for a cab; pick them up in a car, drive them
+// to one of nine road intersections across the big city within 150 seconds,
+// and get paid $40–$80 plus respect. Retimed for the 11400x6600 map: the
+// pickup wait is 30 seconds and the delivery clock is 150. Pure rules —
+// the renderer marks the waiting fare and the destination.
 import { pick } from './random.js';
 
-// 9 fixed road intersections spread across the city (ROADS_V x ROADS_H).
 const DESTINATIONS = [
-  { x: 320, y: 320, label: 'Northwest corner' },
-  { x: 3280, y: 320, label: 'Northeast corner' },
-  { x: 320, y: 2280, label: 'Southwest corner' },
-  { x: 3280, y: 2280, label: 'Southeast corner' },
-  { x: 1472, y: 960, label: 'Palm Row' },
-  { x: 2240, y: 1600, label: 'Midtown' },
-  { x: 1088, y: 1920, label: 'Arcade district' },
-  { x: 2624, y: 640, label: 'Neon Hotel' },
-  { x: 704, y: 960, label: 'Palm Row west' },
+  { x: 1050, y: 800, label: 'Northwest corner' },
+  { x: 10350, y: 800, label: 'Northeast corner' },
+  { x: 1050, y: 5800, label: 'Southwest corner' },
+  { x: 10350, y: 5800, label: 'Southeast corner' },
+  { x: 4350, y: 2300, label: 'Palm Row' },
+  { x: 7100, y: 3800, label: 'Midtown' },
+  { x: 3600, y: 4800, label: 'Arcade district' },
+  { x: 8300, y: 1300, label: 'Neon Hotel' },
+  { x: 2400, y: 2300, label: 'Palm Row west' },
 ];
 const PAYS = [40, 50, 60, 80];
-const PICKUP_DIST = 70;
-const DELIVERY_DIST = 90;
-const FARE_TIME = 45;
+const PICKUP_DIST = 110;
+const DELIVERY_DIST = 140;
+const FARE_TIME = 150;
+const WAIT_TIME = 30;
 
 function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
 
 export function createTaxi(random) {
   const rnd = random || Math.random;
   function reset(state) {
-    state.taxi = { waiting: null, active: null, cooldown: 12 };
+    state.taxi = { waiting: null, active: null, cooldown: 12, waitTimer: 0 };
   }
   function update(dt, state) {
     const taxi = state.taxi;
@@ -37,10 +38,13 @@ export function createTaxi(random) {
 
     if (taxi.waiting) {
       const ped = taxi.waiting;
-      if (!ped.alive) {
-        // The waiting fare got run over before pickup.
-        ped.fare = false; taxi.waiting = null; taxi.cooldown = 10;
-        state.message = 'Your fare got run over. Ouch.'; state.messageTimer = 3;
+      taxi.waitTimer -= dt;
+      if (!ped.alive || taxi.waitTimer <= 0) {
+        ped.fare = false;
+        taxi.waiting = null;
+        taxi.cooldown = 10;
+        if (ped.alive) { state.message = 'The fare got tired of waiting.'; state.messageTimer = 3; }
+        else { state.message = 'Your fare got run over. Ouch.'; state.messageTimer = 3; }
         return;
       }
       if (player.inCar) {
@@ -63,29 +67,36 @@ export function createTaxi(random) {
       const fare = taxi.active;
       fare.timer -= dt;
       if (fare.timer <= 0) {
-        taxi.active = null; taxi.cooldown = 15;
-        state.message = 'Too slow — the fare got out and walked away.'; state.messageTimer = 3;
+        taxi.active = null;
+        taxi.cooldown = 15;
+        state.message = 'Too slow — the fare got out and walked away.';
+        state.messageTimer = 3;
         return;
       }
       if (player.inCar) {
         const car = state.cars.find((c) => c.id === player.carId);
         if (car && dist(car.x, car.y, fare.dest.x, fare.dest.y) < DELIVERY_DIST) {
-          state.money += fare.pay; state.respect += 2;
-          state.message = `Fare delivered! +$${fare.pay} • Respect +2`; state.messageTimer = 3;
-          taxi.active = null; taxi.cooldown = 20;
+          state.money += fare.pay;
+          state.earnedTotal += fare.pay;
+          state.respect += 2;
+          state.message = `Fare delivered! +$${fare.pay} • Respect +2`;
+          state.messageTimer = 3;
+          taxi.active = null;
+          taxi.cooldown = 20;
         }
       }
       return;
     }
 
-    // No fare yet: once the cooldown is over, a random living ped waves.
     if (taxi.cooldown > 0) return;
     const living = state.peds.filter((p) => p.alive && !p.fare);
     if (living.length === 0) return;
     const ped = pick(rnd, living);
     ped.fare = true;
     taxi.waiting = ped;
-    state.message = 'A customer is waving for a taxi!'; state.messageTimer = 3;
+    taxi.waitTimer = WAIT_TIME;
+    state.message = 'A customer is waving for a taxi!';
+    state.messageTimer = 3;
   }
   return { reset, update };
 }

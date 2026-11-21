@@ -1,64 +1,82 @@
-// Vice Coast v5 — tuning numbers, colours and districts in one place.
-// The world is a 3600x2600 coastal city; the camera shows a 1280x720 window
-// of it. v5 splits the city into four districts with their own ground
-// palettes, adds a day/night weather cycle, gang turf, a shop and phone jobs.
+// Vice Coast v6 — shared tuning for the 3D rebuild.
+// A big coastal city, 11400 by 6600, beach and sunset on the west edge.
+// All speeds are world units per second; the day cycle is 240 seconds.
 export const VIEW = { width: 1280, height: 720 };
-export const WORLD = { width: 3600, height: 2600 };
+export const WORLD = { width: 11400, height: 6600 };
 export const STEP = 1 / 60;
 export const BEST_KEY = 'vice-coast.best-money';
 export const MISSIONS_KEY = 'vice-coast.missions-done';
-export const SAVE_KEY = 'vice-coast.save-v5';
+export const SAVE_KEY = 'vice-coast.save-v6';
 
-export const PLAYER = { radius: 13, walk: 230, sprint: 350, health: 100, armorMax: 100 };
-export const CAR = { length: 54, width: 28, accel: 420, brake: 620, maxSpeed: 560, reverse: 200, turn: 2.6, grip: 0.92 };
-export const WANTED_DECAY = 18; // seconds hidden with no crime before a star drops
+export const PLAYER = { radius: 14, walk: 230, sprint: 350, health: 100, armorMax: 100 };
+export const CAR = { length: 96, width: 46, accel: 336, brake: 496, maxSpeed: 448, reverse: 160, turn: 2.4, grip: 0.94 };
+export const COP_SPEED = { base: 360, perStar: 20 };
+export const WANTED_DECAY = 14; // hidden seconds before one star drops
+export const HIDE_RADIUS = 380; // no cop inside this radius counts as hidden
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-// Police helicopter: circles the player once the heat hits 4 stars.
-export const HELI = { radius: 260, orbitSpeed: 0.55, rotorSpeed: 42, spotlight: 190 };
+export const HELI = { radius: 420, orbitSpeed: 0.5, rotorSpeed: 38, spotlight: 320 };
 
-// Hidden packages: 10 golden parcels tucked beside landmarks across the city.
-// Finding one pays $50 and +2 respect; the HUD tracks n/10.
+export const NITRO = { cap: 100, drain: 30, refill: 8, speedBonus: 0.35, accelBonus: 0.5 };
+export const HANDBRAKE = { turnMult: 2, bleed: 600 };
+export const DRIFT = { minSpeed: 220, minYaw: 1.1, pay: 50, maxMult: 5 };
+export const NEAR_MISS = { near: 52, far: 78, minSpeed: 250, pay: 100, cooldown: 5 };
+
+export const CREW = [
+  { id: 'mira', name: 'Mira', role: 'Swap Plates', key: '1', cooldown: 45, desc: 'Removes 1 wanted star' },
+  { id: 'lio', name: 'Lio', role: 'Quick Fix', key: '2', cooldown: 30, desc: 'Repairs the car to full' },
+  { id: 'kiki', name: 'Kiki', role: 'Eyes Out', key: '3', cooldown: 60, desc: 'Marks foot cops on the map for 20s' },
+];
+
+export const RANKS = [
+  { at: 0, name: 'Dock Hand', weapon: null },
+  { at: 60, name: 'Wheelman', weapon: 'smg' },
+  { at: 140, name: 'Fixer', weapon: 'shotgun' },
+  { at: 240, name: 'Shot Caller', weapon: 'mako' },
+  { at: 380, name: 'Kingpin', weapon: null },
+];
+export const WEAPONS = {
+  pistol: { name: 'Pistol', damage: 34, rate: 0.22, spread: 0, pellets: 1, ammo: 30 },
+  smg: { name: 'SMG', damage: 22, rate: 0.1, spread: 0.05, pellets: 1, ammo: 60 },
+  shotgun: { name: '12G', damage: 18, rate: 0.7, spread: 0.12, pellets: 3, ammo: 24 },
+  mako: { name: 'MAKO', damage: 55, rate: 0.16, spread: 0.01, pellets: 1, ammo: 40 },
+};
+export const GOLD_PAINT = '#ffd700';
+
 export const HIDDEN_PACKAGES = [
-  { x: 210, y: 1180, label: 'Pier crates' },
-  { x: 704, y: 640, label: 'Palm Row bench' },
-  { x: 1088, y: 1920, label: 'Arcade alley' },
-  { x: 1472, y: 960, label: 'Hotel gardens' },
-  { x: 1856, y: 1600, label: 'Bank steps' },
-  { x: 2240, y: 640, label: 'Rooftop cafe' },
-  { x: 2624, y: 2240, label: 'Docks container' },
-  { x: 3008, y: 1280, label: 'East market' },
-  { x: 3392, y: 1920, label: 'Beach hut' },
-  { x: 704, y: 2240, label: 'Hideout stash' },
+  { x: 700, y: 2900, label: 'Pier crates' },
+  { x: 2400, y: 1600, label: 'Palm Row bench' },
+  { x: 3600, y: 4700, label: 'Arcade alley' },
+  { x: 4900, y: 2400, label: 'Hotel gardens' },
+  { x: 5900, y: 3400, label: 'Bank steps' },
+  { x: 7300, y: 1600, label: 'Rooftop cafe' },
+  { x: 8800, y: 5600, label: 'Docks container' },
+  { x: 10100, y: 3200, label: 'East market' },
+  { x: 900, y: 4800, label: 'Beach hut' },
+  { x: 2400, y: 5700, label: 'Hideout stash' },
 ];
 
-// Night drops (mission 6, Vice Nights): one per city corner, collected in order.
 export const NIGHT_DROPS = [
-  { x: 320, y: 320 },
-  { x: 3280, y: 320 },
-  { x: 3280, y: 2280 },
-  { x: 320, y: 2280 },
+  { x: 900, y: 700 },
+  { x: 10500, y: 700 },
+  { x: 10500, y: 5900 },
+  { x: 900, y: 5900 },
 ];
 
-// Four districts: the west beach strip, the neon downtown in the north-east,
-// the container docks in the south-east, and the suburbs everywhere else.
-// districtAt() checks them in this order so the strips win over the suburbs.
 export const DISTRICTS = [
-  { name: 'Beach', x0: 0, y0: 0, x1: 300, y1: 2600, ground: '#c2ad7d', accent: '#1b6f8e' },
-  { name: 'Neon Downtown', x0: 2240, y0: 0, x1: 3600, y1: 1600, ground: '#6f6a72', accent: '#ff2fb3' },
-  { name: 'Coral Docks', x0: 2624, y0: 1600, x1: 3600, y1: 2600, ground: '#7d7468', accent: '#f1c40f' },
-  { name: 'Suburbs', x0: 300, y0: 0, x1: 3600, y1: 2600, ground: '#7a7f6a', accent: '#2ecc71' },
+  { name: 'Beach', x0: 0, y0: 0, x1: 900, y1: 6600, ground: 0xc2ad7d, accent: '#1b6f8e' },
+  { name: 'Neon Downtown', x0: 7100, y0: 0, x1: 11400, y1: 4000, ground: 0x6f6a72, accent: '#ff2fb3' },
+  { name: 'Coral Docks', x0: 8300, y0: 4000, x1: 11400, y1: 6600, ground: 0x7d7468, accent: '#f1c40f' },
+  { name: 'Suburbs', x0: 900, y0: 0, x1: 11400, y1: 6600, ground: 0x7a7f6a, accent: '#2ecc71' },
 ];
 
 export function districtAt(x, y) {
-  if (x < 300) return DISTRICTS[0];
-  if (x >= 2240 && y < 1600) return DISTRICTS[1];
-  if (x >= 2624 && y >= 1600) return DISTRICTS[2];
+  if (x < 900) return DISTRICTS[0];
+  if (x >= 7100 && y < 4000) return DISTRICTS[1];
+  if (x >= 8300 && y >= 4000) return DISTRICTS[2];
   return DISTRICTS[3];
 }
 
-// Day/night cycle: one full day is 240 s of play — day 0-120 s, sunset
-// 120-170 s, night 170-240 s — then it rolls over to the next morning.
 export const DAY_LENGTH = 240;
 export const DAY_PHASES = [
   { name: 'day', from: 0, to: 120 },
@@ -66,20 +84,15 @@ export const DAY_PHASES = [
   { name: 'night', from: 170, to: 240 },
 ];
 
-// Sunset Arms & Paint: the shop sits on the road beside the Neon Hotel.
-export const SHOP_POS = { x: 2624, y: 720, label: 'Sunset Arms & Paint' };
-// Six paint colours the shop cycles through for the player's current car.
+export const SHOP_POS = { x: 8300, y: 1800, label: 'Sunset Arms & Paint' };
 export const PAINTS = ['#e74c3c', '#f1c40f', '#3498db', '#2ecc71', '#9b59b6', '#ff6b9d'];
 
 export const PALETTE = {
   sea: '#1b6f8e', seaDeep: '#145a76', sand: '#e8c98f', sandDark: '#d9b878',
-  grass: '#4f9e57', grassDark: '#3f8a49', road: '#33363d', roadEdge: '#4a4e57',
-  sidewalk: '#9aa0a8',
+  grass: '#4f9e57', road: '#33363d', roadEdge: '#4a4e57', sidewalk: '#9aa0a8',
   building: ['#c96f4a', '#d9a441', '#7a6fae', '#5b8fb0', '#b05b7a', '#6fae7a', '#c9c9c9', '#e07a5f'],
   roof: ['#8a4a32', '#a67c2e', '#5a4f8a', '#40657d', '#8a4060', '#4f7d58'],
   text: '#fff7e8', muted: '#ffd9a0', panel: 'rgba(20,16,32,0.92)', gold: '#ffc93c',
   hudBg: 'rgba(12,10,24,0.62)', cop: '#2f6fd0', copLight: '#ff3b30',
-  // District tints used for the ground wash and the turf overlay.
-  beach: '#e8c98f', downtown: '#3a3345', docks: '#6e6250', suburbs: '#7a7f6a',
   gang: '#8e44ad', gangGold: '#f1c40f',
 };

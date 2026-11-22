@@ -1,274 +1,330 @@
-// Vice Coast v6 boot + loop. Fixed 1/60 s steps, screens: title, brief,
-// play, paused, over (wasted/busted), win. ?seed=N fixes the city;
-// ?shot=chase|play|heist|end stages a screenshot scene and sets
-// window.__shotReady. The shop (E), the phone (P — it pauses the game
-// while open), save / continue (C on the title), crew abilities (1/2/3),
-// weapon cycle (V), nitro (Shift) and handbrake (Space, in the car) all
-// live here. Round 7 adds the camera-collision chase cam, human ped
-// rigs, real PCFSoft shadows and procedural facades — the renderer owns
-// those, this file only drives the loop and wires their sounds.
-// Written fresh for the v6 rebuild.
+// The entry point for Vice Coast: boot, the screen flow (title, briefing,
+// play, paused, over, win), keyboard and touch input, the game loop, and
+// the window.__game handle the playtests drive.
 import * as THREE from 'three';
-import { BEST_KEY, MISSIONS_KEY, STEP, VIEW, WORLD } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_MISSION, EVENT_OVER, EVENT_PICKUP, EVENT_SHOT } from './world.js';
-import { ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_INTERACT, ACTION_MUTE, ACTION_PAUSE, ACTION_PHONE, ACTION_RADIO, ACTION_SHOOT, ACTION_SLOT1, ACTION_SLOT2, ACTION_SLOT3, ACTION_SLOT4, ACTION_WEAPON, IS_TOUCH, createInput } from './input.js';
+import { createWorld } from './world.js';
+import { createRenderer } from './render3d.js';
+import { createHud } from './hud.js';
+import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createRadio } from './radio.js';
-import { createScene } from './render3d.js';
-import { createHud, SCREEN_BRIEF, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './hud.js';
 import { stageShot } from './shots.js';
-import { hasSave, loadSave, saveGame } from './save.js';
-
-const MAX_FRAME = 0.25;
-const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+import { loadGame, applySave, hasSave, saveGame } from './save.js';
+import { buyItem, nearShop, SHOP_ITEMS } from './shop.js';
 
 const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const hudRoot = document.getElementById('hud');
-const world = createWorld(createRandom(seed));
-const scene3d = createScene(canvas);
-const hud = createHud(hudRoot);
 const audio = createAudio();
 const radio = createRadio(audio);
+const input = createInput();
+input.attach();
 
-function readNum(key) { try { return Number.parseInt(window.localStorage.getItem(key) ?? '0', 10) || 0; } catch { return 0; } }
-function saveNum(key, v) { try { window.localStorage.setItem(key, String(v)); } catch { /* private mode */ } }
+let world = createWorld(audio);
+let state = world.state;
+let renderer = createRenderer(canvas, state);
+let hud = createHud(state, radio);
 
-function sizeCanvas() {
-  const w = canvas.clientWidth || window.innerWidth;
-  const h = canvas.clientHeight || window.innerHeight;
-  scene3d.resize(w, h);
+// The screen flow. 'title' and 'brief' run the world as an attract mode;
+// 'paused' freezes it; 'over' and 'win' are set from state.over.
+let screen = 'title';
+let shotStaged = false;
+let shotFrames = 0;
+
+function setScreen(next) {
+  screen = next;
+  document.body.dataset.screen = next;
+  // Touch buttons: only the one for this screen is tappable.
+  const startBtn = document.querySelector('button[data-act="start"]');
+  const playBtn = document.querySelector('button[data-act="play"]');
+  if (startBtn) startBtn.style.display = next === 'title' ? 'block' : 'none';
+  if (playBtn) playBtn.style.display = next === 'brief' ? 'block' : 'none';
+  const titleEl = document.getElementById('vc-title');
+  if (titleEl) titleEl.style.display = next === 'title' ? 'flex' : 'none';
+  const briefEl = document.getElementById('vc-brief');
+  if (briefEl) briefEl.style.display = next === 'brief' ? 'flex' : 'none';
+  const overEl = document.getElementById('vc-over');
+  if (overEl) overEl.style.display = next === 'over' ? 'flex' : 'none';
+  const winEl = document.getElementById('vc-win');
+  if (winEl) {
+    winEl.style.display = next === 'win' ? 'flex' : 'none';
+    if (next === 'win') {
+      const total = document.getElementById('vc-win-total');
+      if (total) total.textContent = `$${state.earnedTotal.toLocaleString('en-US')}`;
+      const rankEl = document.getElementById('vc-win-rank');
+      if (rankEl) rankEl.textContent = `Rank ${state.rankIndex} · ${state.missionsDone}/10 missions`;
+    }
+  }
+  const continueBtn = document.getElementById('vc-continue');
+  if (continueBtn) continueBtn.style.display = next === 'title' && hasSave() ? 'block' : 'none';
 }
-window.addEventListener('resize', sizeCanvas);
-sizeCanvas();
 
-function runShot(name) {
-  const staged = stageShot(name, world);
-  window.__game = {
-    state: world.state,
-    world,
-    audio,
-    shop: world.shop,
-    phone: world.phone,
-    weather: world.weather,
-    scene: scene3d,
-    sceneDebug: () => scene3d.debug(),
-    get heli() { return world.state.heli; },
-  };
-  let painted = 0;
-  function paint() {
-    scene3d.update(world.state, STEP, world.state.elapsed + painted * 0.05, 0, staged.screen);
-    hud.draw(world.state, staged.screen, staged.best, { time: world.state.elapsed, radio: radio.name(), hasSave: false });
-    painted += 1;
-    if (painted < 5) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
+function restart() {
+  world.reset();
+  state = world.state;
+  setScreen('brief');
 }
 
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readNum(BEST_KEY);
-  let missionsBest = readNum(MISSIONS_KEY);
-  let accumulator = 0;
-  let last = performance.now();
-  let time = 0;
-  let prevWanted = 0;
-  let prevDriveby = -1;
-  let pendingShoot = false;
-  let pendingEnter = false;
-  let spaceDown = false;
-  let wasDrifting = false;
-  window.addEventListener('keydown', (e) => { if (e.code === 'Space') spaceDown = true; });
-  window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = false; });
+function startPlay() {
+  // Starting from the briefing (re)starts the run at the spawn point,
+  // on foot — so the mission always begins from the same place.
+  state.player.inCar = false;
+  state.player.carId = -1;
+  state.player.x = 1300;
+  state.player.y = 3300;
+  state.player.angle = Math.PI;
+  state.player.speed = 0;
+  setScreen('play');
+  radio.start();
+  audio.ensure();
+}
 
-  function announce(m) { status.textContent = m; }
-  function startGame() {
-    world.reset(); accumulator = 0; screen = SCREEN_BRIEF; audio.unlock();
-    announce('Vice Coast. Mission briefing.');
+function openBrief() {
+  setScreen('brief');
+  const briefText = document.getElementById('vc-brief-text');
+  const m = state.missionIndex;
+  if (briefText) {
+    briefText.textContent = `Mission ${m + 1} of 10 — press Enter to play.`;
   }
-  function continueGame() {
-    const data = loadSave();
-    if (!data) { announce('No save yet — start a new run.'); return false; }
-    world.continueSave(data); accumulator = 0; screen = SCREEN_BRIEF; audio.unlock();
-    announce(`Continuing: mission ${Math.min(data.missionsDone + 1, 10)}, $${data.money}.`);
-    return true;
-  }
-  function endRun() {
-    screen = world.state.over === 'win' ? SCREEN_WIN : SCREEN_OVER;
-    if (world.state.money > best) { best = world.state.money; saveNum(BEST_KEY, best); }
-    if (world.state.missionsDone > missionsBest) { missionsBest = world.state.missionsDone; saveNum(MISSIONS_KEY, missionsBest); }
-    world.state.best = best;
-    saveGame(world.state);
-    if (world.state.over === 'win') audio.win(); else audio.busted();
-    announce(`${world.state.overReason} Money $${world.state.money}. Best $${best}.`);
-  }
-  function aimAngle() {
-    const st = world.state;
-    if (IS_TOUCH || st.player.inCar) return st.player.angle;
-    const v = new THREE.Vector3(st.player.x, 60, st.player.y);
-    v.project(scene3d.camera);
-    const rect = canvas.getBoundingClientRect();
-    const px = ((v.x + 1) / 2) * rect.width;
-    const py = ((1 - v.y) / 2) * rect.height;
-    const dx = input.mouse.x - px;
-    const dy = input.mouse.y - py;
-    if (Math.hypot(dx, dy) < 4) return st.player.angle;
-    return Math.atan2(dy, dx);
-  }
+}
 
-  function handleActions() {
-    const actions = input.takeActions();
-    const st = world.state;
-    if (actions & ACTION_MUTE) { const m = audio.toggleMute(); announce(m ? 'Muted.' : 'Sound on.'); }
-    if (actions & ACTION_RADIO) { const name = radio.next(); announce(`Radio: ${name}.`); }
-    if (actions & ACTION_SHOOT) pendingShoot = true;
-    if (actions & ACTION_ENTER) pendingEnter = true;
-    if (actions & ACTION_WEAPON && screen === SCREEN_PLAY) { world.cycleWeapon(); }
-    if (st.shop.open) {
-      if (actions & ACTION_SLOT1) { const r = world.shop.buy(st, 'armor'); announce(r.msg); }
-      else if (actions & ACTION_SLOT2) { const r = world.shop.buy(st, 'ammo'); announce(r.msg); }
-      else if (actions & ACTION_SLOT3) { const r = world.shop.buy(st, 'paint'); announce(r.msg); }
-    } else if (st.phone.open) {
-      if (actions & ACTION_SLOT1) { const r = world.phone.start(st, 'courier'); announce(r.ok ? 'Courier job started.' : r.msg); }
-      else if (actions & ACTION_SLOT2) { const r = world.phone.start(st, 'vigilante'); announce(r.ok ? 'Vigilante job started.' : r.msg); }
-      else if (actions & ACTION_SLOT3) { const r = world.phone.start(st, 'racer'); announce(r.ok ? 'Racer job started.' : r.msg); }
-      else if (actions & ACTION_SLOT4) { const r = world.phone.start(st, 'repo'); announce(r.ok ? 'Repo job started.' : r.msg); }
-    } else if (screen === SCREEN_PLAY) {
-      if (actions & ACTION_SLOT1) { const r = world.useCrew('mira'); announce(r.msg); }
-      else if (actions & ACTION_SLOT2) { const r = world.useCrew('lio'); announce(r.msg); }
-      else if (actions & ACTION_SLOT3) { const r = world.useCrew('kiki'); announce(r.msg); }
-    }
-    if (actions & ACTION_INTERACT) {
-      if (screen === SCREEN_PLAY && st.shop.near) { const open = world.shop.toggle(st); announce(open ? 'Sunset Arms & Paint — 1 armor, 2 ammo, 3 paint.' : 'Shop closed.'); }
-    }
-    if (actions & ACTION_PHONE) {
-      if (screen === SCREEN_PLAY) { world.phone.toggle(); screen = SCREEN_PAUSED; saveGame(st); announce('Phone open. 1 Courier, 2 Vigilante, 3 Racer, 4 Repo.'); return; }
-      if (screen === SCREEN_PAUSED) {
-        if (st.phone.open) { world.phone.toggle(); screen = SCREEN_PLAY; announce('Playing.'); }
-        else { screen = SCREEN_PLAY; announce('Playing.'); }
-        return;
-      }
-    }
-    if (screen === SCREEN_TITLE && (actions & (ACTION_CONFIRM | ACTION_SHOOT))) { startGame(); pendingShoot = false; pendingEnter = false; return; }
-    if (screen === SCREEN_TITLE && (actions & ACTION_CONTINUE) && hasSave()) { continueGame(); pendingShoot = false; pendingEnter = false; return; }
-    if (screen === SCREEN_BRIEF && (actions & (ACTION_CONFIRM | ACTION_ENTER))) { screen = SCREEN_PLAY; announce('Playing. Follow the gold marker.'); pendingEnter = false; return; }
-    if (screen === SCREEN_OVER || screen === SCREEN_WIN) {
-      if (actions & ACTION_CONFIRM) { startGame(); pendingShoot = false; pendingEnter = false; }
-      return;
-    }
-    if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) { screen = SCREEN_PAUSED; saveGame(st); announce('Paused.'); return; }
-    if (actions & ACTION_PAUSE && screen === SCREEN_PAUSED) {
-      if (st.phone.open) { world.phone.toggle(); announce('Phone closed. Still paused.'); }
-      else { screen = SCREEN_PLAY; announce('Playing.'); }
-    }
-  }
-
-  function step() {
-    time += STEP;
-    if (screen === SCREEN_TITLE) { world.step(STEP, { move: { x: 0, y: 0 } }, true); return; }
-    if (screen !== SCREEN_PLAY) return;
-    if (world.state.shop.open) return;
-    const move = input.move();
-    const race = world.state.race;
-    if (race.available && !race.active && race.countdown <= 0 && world.state.player.inCar) {
-      if (Math.hypot(world.state.player.x - 700, world.state.player.y - 3300) < 170) world.startRace();
-    }
-    const ctrl = {
-      move, sprint: input.held.sprint || input.touch.boost,
-      shoot: pendingShoot || input.mouse.down || input.touch.shooting,
-      aimAngle: aimAngle(), enter: pendingEnter,
-      handbrake: (spaceDown && world.state.player.inCar) || input.touch.handbrake,
-    };
-    pendingShoot = false; pendingEnter = false;
-    input.easeCam(STEP, world.state.player.inCar && Math.abs(world.state.player.speed) > 60);
-    const events = world.step(STEP, ctrl, false);
-    const st = world.state;
-    radio.tick(STEP);
-    audio.engine(st.player.inCar ? st.player.speed : 0, st.player.inCar);
-    audio.siren(STEP, st.wanted > 0);
-    audio.rotor(STEP, !!st.heli);
-    audio.nightAmbience(STEP, st.weather.phase === 'night');
-    if (st.drivebyAt !== prevDriveby) { prevDriveby = st.drivebyAt; if (st.drivebyAt >= 0) audio.driveby(); }
-    if (events & EVENT_SHOT) audio.shot();
-    if (events & EVENT_PICKUP) audio.pickup();
-    if (events & EVENT_MISSION) audio.mission();
-    if (st.boosting) audio.boost();
-    // Round 7: a skid sound when a drift starts, so the drift payout
-    // the world awards has a sound to match it.
-    if (st.drifting && !wasDrifting) audio.skid();
-    wasDrifting = st.drifting;
-    if (st.wanted > prevWanted) audio.siren(0, true);
-    prevWanted = st.wanted;
-    if (events & EVENT_OVER) endRun();
-    else if (st.over) endRun();
-  }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    // Round 7: the renderer gets the real frame delta, not the fixed
-    // step — its camera boom, yaw and height easings are per-frame
-    // smoothers, and on a slow frame they must catch up in wall time
-    // instead of lagging a fixed 1/60 s behind.
-    const frameDt = Math.min((now - last) / 1000, MAX_FRAME);
-    accumulator += frameDt;
-    last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) { step(); accumulator -= STEP; }
-    } else accumulator = 0;
-    const saveData = hasSave() ? loadSave() : null;
-    scene3d.update(world.state, frameDt, time, input.cam.yaw, screen);
-    hud.draw(world.state, screen, best, { time, muted: audio.muted, radio: radio.name(), hasSave: !!saveData, saveData });
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) { screen = SCREEN_PAUSED; saveGame(world.state); announce('Paused.'); }
-  });
-
-  hudRoot.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-act]');
-    if (btn) {
-      const act = btn.dataset.act;
-      if (act === 'start') startGame();
-      else if (act === 'continue') continueGame();
-      else if (act === 'play' || act === 'resume') { if (screen === SCREEN_BRIEF || screen === SCREEN_PAUSED) { world.state.phone.open = false; screen = SCREEN_PLAY; } }
-      else if (act === 'restart') startGame();
-      return;
-    }
-    const crew = e.target.closest('[data-crew]');
-    if (crew && screen === SCREEN_PLAY) { const r = world.useCrew(crew.dataset.crew); announce(r.msg); return; }
-    const job = e.target.closest('[data-job]');
-    if (job && world.state.phone.open) { const r = world.phone.start(world.state, job.dataset.job); announce(r.ok ? `${job.dataset.job} job started.` : r.msg); return; }
-    const buy = e.target.closest('[data-buy]');
-    if (buy && world.state.shop.open) { const r = world.shop.buy(world.state, buy.dataset.buy); announce(r.msg); }
-  });
-
-  window.__game = {
-    screen: () => screen,
-    state: world.state,
-    world,
-    start: startGame,
-    continueGame,
-    audio,
-    radio,
-    input,
-    scene: scene3d,
-    shop: world.shop,
-    phone: world.phone,
-    weather: world.weather,
-    save: { hasSave, loadSave },
-    sceneDebug: () => scene3d.debug(),
-    get heli() { return world.state.heli; },
+// ------------------------------------------------------------ keyboard
+// One keydown listener routes every key by the screen the game is on.
+// The phone is the only thing that pauses mid-game: P opens it from
+// play and closes it from paused. Picking a side job with 1-4 starts
+// the job but leaves the phone open — the player closes it with P when
+// they are done browsing, so the job, the close and the resume are
+// three separate steps and none of them can swallow the next one.
+window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const code = e.code;
+  const closePhone = () => {
+    state.phone.open = false;
+    setScreen('play');
   };
-  announce('Vice Coast. Press Space or click to start.');
+  if (screen === 'title') {
+    if (code === 'Space' || code === 'Enter') openBrief();
+    else if (code === 'KeyC' && hasSave()) {
+      const data = loadGame();
+      applySave(state, data);
+      world.startMission(Math.min(state.missionsDone, 9));
+      setScreen('brief');
+    }
+    return;
+  }
+  if (screen === 'brief') {
+    if (code === 'Enter' || code === 'Space') startPlay();
+    return;
+  }
+  if (screen === 'over' || screen === 'win') {
+    if (code === 'KeyR') restart();
+    return;
+  }
+  if (code === 'KeyR') {
+    restart();
+    return;
+  }
+  if (screen === 'paused') {
+    if (code === 'KeyP') {
+      closePhone();
+    } else if (state.phone.open && /^Digit[1-4]$/.test(code)) {
+      // Start the job and stay on the phone: P closes it afterwards.
+      state.phone.startJob(state, code.slice(5));
+    }
+    return;
+  }
+  // screen === 'play'
+  if (code === 'KeyP') {
+    state.phone.open = true;
+    setScreen('paused');
+  } else if (code === 'KeyF') {
+    world.enterExitCar();
+  } else if (code === 'KeyE') {
+    if (state.shop.open) state.shop.open = false;
+    else if (nearShop(state)) state.shop.open = true;
+  } else if (code === 'KeyQ') {
+    radio.next();
+  } else if (code === 'KeyJ') {
+    if (!state.player.inCar) world.shoot(state.player.angle);
+  } else if (code === 'Digit1') {
+    world.useCrew('mira');
+  } else if (code === 'Digit2') {
+    world.useCrew('dex');
+  } else if (code === 'Digit3') {
+    world.useCrew('luna');
+  }
+});
+
+// Shooting with the mouse: click to fire, nudged toward where on the
+// screen the click landed.
+canvas.addEventListener('mousedown', (e) => {
+  if (screen !== 'play' || state.player.inCar) return;
+  const rect = canvas.getBoundingClientRect();
+  const dx = (e.clientX - (rect.left + rect.width / 2)) / rect.width;
+  world.shoot(state.player.angle + dx * 1.2);
+});
+
+// --------------------------------------------------------------- touch
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (isTouch) document.body.classList.add('vc-touch-device');
+
+function bindTouchButton(act, down, up) {
+  const btn = document.querySelector(`button[data-act="${act}"]`);
+  if (!btn) return;
+  const on = (e) => {
+    e.preventDefault();
+    if (down) down();
+  };
+  const off = (e) => {
+    e.preventDefault();
+    if (up) up();
+  };
+  btn.addEventListener('pointerdown', on);
+  btn.addEventListener('pointerup', off);
+  btn.addEventListener('pointerleave', off);
+  btn.addEventListener('pointercancel', off);
+}
+
+bindTouchButton('start', () => {
+  if (screen === 'title') openBrief();
+});
+bindTouchButton('play', () => {
+  if (screen === 'brief') startPlay();
+});
+bindTouchButton('shoot', () => {
+  if (screen === 'play' && !state.player.inCar) world.shoot(state.player.angle);
+});
+bindTouchButton('enter', () => {
+  if (screen === 'play') world.enterExitCar();
+});
+bindTouchButton('nitro', () => input.touch.buttons.add('nitro'), () => input.touch.buttons.delete('nitro'));
+bindTouchButton('brake', () => input.touch.buttons.add('brake'), () => input.touch.buttons.delete('brake'));
+bindTouchButton('drive', () => input.touch.buttons.add('drive'), () => input.touch.buttons.delete('drive'));
+bindTouchButton('phone', () => {
+  if (screen === 'play') {
+    state.phone.open = true;
+    setScreen('paused');
+  } else if (screen === 'paused') {
+    state.phone.open = false;
+    setScreen('play');
+  }
+});
+
+// The joystick: drag to move, release to stop.
+const stick = document.querySelector('.vc-joystick');
+const knob = document.querySelector('.vc-joystick-knob');
+if (stick) {
+  let stickId = null;
+  const setFromEvent = (e) => {
+    const r = stick.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const dx = (e.clientX - cx) / (r.width / 2);
+    const dy = (e.clientY - cy) / (r.height / 2);
+    const len = Math.hypot(dx, dy);
+    const cl = len > 1 ? 1 / len : 1;
+    input.setJoystick(dx * cl, dy * cl);
+    if (knob) knob.style.transform = `translate(${dx * cl * 28}px, ${dy * cl * 28}px)`;
+  };
+  stick.addEventListener('pointerdown', (e) => {
+    stickId = e.pointerId;
+    stick.setPointerCapture(e.pointerId);
+    setFromEvent(e);
+  });
+  stick.addEventListener('pointermove', (e) => {
+    if (e.pointerId === stickId) setFromEvent(e);
+  });
+  const release = (e) => {
+    if (e.pointerId === stickId) {
+      stickId = null;
+      input.releaseJoystick();
+      if (knob) knob.style.transform = 'translate(0px, 0px)';
+    }
+  };
+  stick.addEventListener('pointerup', release);
+  stick.addEventListener('pointercancel', release);
+}
+
+// ------------------------------------------------------------ the loop
+let lastT = performance.now();
+let shotReady = false;
+
+function frame(now) {
   requestAnimationFrame(frame);
+  const dt = Math.min((now - lastT) / 1000, 0.5);
+  lastT = now;
+
+  // Stage a screenshot when the URL asks for one.
+  if (!shotStaged) {
+    const params = new URLSearchParams(window.location.search);
+    const shot = params.get('shot');
+    if (shot) {
+      const seed = parseInt(params.get('seed') || '31', 10);
+      stageShot({ state, world }, shot, seed);
+      shotStaged = true;
+      setScreen('play');
+      radio.start();
+    }
+  }
+
+  // The world runs on title, briefing and play — an attract mode behind
+  // the menus, the real game in play. Paused, over and win freeze it.
+  if (screen === 'title' || screen === 'brief' || screen === 'play') {
+    const mv = input.moveVector();
+    // The touch drive button acts as forward.
+    if (input.touch.buttons.has('drive')) mv.y = 1;
+    world.step(dt, { move: mv, nitro: input.nitro(), handbrake: input.handbrake(), shoot: input.shootHeld() }, isTouch);
+    // The run can end inside the step: death or the finale win.
+    if (state.over === 'win' && screen !== 'win') setScreen('win');
+    else if (state.over === 'dead' && screen !== 'over') setScreen('over');
+  }
+
+  renderer.render(dt);
+  hud.update(now);
+
+  if (shotStaged && !shotReady) {
+    shotFrames += 1;
+    if (shotFrames >= 3) {
+      shotReady = true;
+      window.__shotReady = true;
+    }
+  }
 }
 
-if (shot) runShot(shot);
-else runGame();
+// --------------------------------------------------------- the game API
+const game = {
+  get state() {
+    return state;
+  },
+  get world() {
+    return world;
+  },
+  radio,
+  shop: {
+    buy: (st, id) => buyItem(st, id),
+    items: SHOP_ITEMS,
+  },
+  save: {
+    hasSave,
+    loadGame,
+    saveGame: (st) => saveGame(st || state),
+    clearSave: () => {
+      try {
+        window.localStorage.removeItem('vice-coast.save-v6');
+      } catch (e) {
+        // Ignore.
+      }
+    },
+  },
+  screen() {
+    return screen;
+  },
+  sceneDebug() {
+    return renderer.sceneDebug();
+  },
+  get heli() {
+    return state.heli;
+  },
+};
+window.__game = game;
+
+setScreen('title');
+requestAnimationFrame(frame);

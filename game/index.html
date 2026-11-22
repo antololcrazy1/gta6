@@ -1,86 +1,175 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="description" content="Vice Coast — an original 3D open-world crime game: explore a sun-soaked coastal city on foot and by car, steal cars, dodge the Vice Coast PD (cars, foot cops and a police helicopter), drive taxi fares, tune the in-car radio, and run a 10-mission story with day/night weather, gang turf wars, a shop and phone side jobs, ending in the Vice Coast Finale. Round 7: a chase camera that never clips a wall, human pedestrians with real walk cycles, PCF soft shadows that follow you, and procedural building facades with rooftop detail.">
-<meta name="theme-color" content="#ff7a3c">
-<link rel="icon" href="data:,">
-<title>Vice Coast — Open-World Crime Game</title>
+<title>Vice Coast — GTA 6 style open world</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #14101f; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #14101f; font-family: 'Segoe UI', Arial, sans-serif; color: #fff; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 4; color: #fff7e8; }
-  #hud button { pointer-events: auto; }
-  .vc-panel { position: absolute; background: rgba(12,10,24,0.62); border-radius: 10px; padding: 8px 10px; font-size: 13px; line-height: 1.45; }
-  #vc-mission { top: 12px; left: 12px; max-width: 46vw; font-size: 13px; }
-  #vc-mission b { font-size: 14px; }
-  #vc-police { top: 118px; left: 12px; font-size: 12px; }
-  #vc-top-right { position: absolute; top: 12px; right: 12px; text-align: right; }
-  #vc-clock { font-size: 18px; font-weight: 700; text-shadow: 0 2px 4px #000; }
-  #vc-money { font-size: 20px; font-weight: 800; color: #7dff9a; text-shadow: 0 2px 4px #000; }
-  #vc-stars { font-size: 20px; letter-spacing: 2px; }
-  #vc-stars .star { color: rgba(255,255,255,0.25); }
-  #vc-stars .star.on { color: #ffd700; text-shadow: 0 0 8px #ff9d00; }
-  #vc-status { font-size: 12px; color: #ffd9a0; }
-  #vc-weapons { position: absolute; top: 150px; right: 12px; display: flex; flex-direction: column; gap: 4px; }
-  .vc-slot { background: rgba(12,10,24,0.62); border-radius: 8px; padding: 5px 9px; font-size: 12px; }
-  .vc-slot.cur { border: 2px solid #ffc93c; }
-  #vc-crew { position: absolute; top: 320px; right: 12px; display: flex; flex-direction: column; gap: 4px; }
-  .vc-crew-card { background: rgba(20,16,32,0.7); border: 1px solid rgba(255,201,60,0.6); border-radius: 8px; padding: 6px 9px; font-size: 12px; pointer-events: auto; cursor: pointer; }
-  #vc-bottom-left { position: absolute; left: 12px; bottom: 12px; }
-  #vc-district { font-size: 18px; font-weight: 700; text-shadow: 0 2px 4px #000; margin-bottom: 4px; }
-  #vc-respect { width: 180px; margin-bottom: 6px; }
-  .vc-bar { background: rgba(0,0,0,0.5); border-radius: 6px; height: 8px; overflow: hidden; margin-top: 4px; }
-  .vc-bar i { display: block; height: 100%; background: #ffc93c; }
-  #vc-map { border-radius: 50%; border: 2px solid rgba(255,255,255,0.5); background: rgba(10,12,20,0.85); display: block; }
-  #vc-bars { width: 180px; margin-top: 6px; }
-  #vc-hp { height: 8px; background: #2ecc71; border-radius: 4px; margin-bottom: 3px; }
-  #vc-armor { height: 8px; background: #3498db; border-radius: 4px; }
-  #vc-dialog { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: 360px; max-width: 80vw; background: rgba(12,10,24,0.78); border-radius: 10px; padding: 10px 12px; font-size: 13px; display: none; gap: 10px; align-items: center; }
-  .vc-face { font-size: 28px; }
-  #vc-speed { position: absolute; right: 12px; bottom: 12px; text-align: right; text-shadow: 0 2px 4px #000; }
-  #vc-speed b { font-size: 34px; }
-  #vc-radio { position: absolute; right: 12px; bottom: 118px; font-size: 12px; color: #ffd9a0; text-shadow: 0 1px 3px #000; }
-  #vc-nitro { position: absolute; right: 12px; bottom: 96px; width: 160px; height: 8px; background: rgba(0,0,0,0.5); border-radius: 6px; overflow: hidden; }
-  #vc-nitro-fill { height: 100%; background: #ffc93c; }
-  #vc-popups { position: absolute; left: 50%; top: 42%; transform: translateX(-50%); text-align: center; font-size: 20px; font-weight: 800; text-shadow: 0 2px 4px #000; }
-  #vc-crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 26px; color: #fff; text-shadow: 0 0 4px #000; display: none; }
-  #vc-hitmarker { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 30px; color: #ff3b30; text-shadow: 0 0 6px #000; display: none; }
-  #vc-banner { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); text-align: center; }
-  .vc-title { font-size: 26px; font-weight: 800; text-shadow: 0 2px 6px #000; }
-  .vc-brief { font-size: 13px; max-width: 46vw; margin: 4px auto 0; text-shadow: 0 1px 3px #000; }
-  .vc-district { font-size: 18px; font-weight: 700; text-shadow: 0 2px 4px #000; }
-  #vc-race { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); text-align: center; font-size: 18px; font-weight: 700; text-shadow: 0 2px 4px #000; }
-  .vc-race-count { font-size: 72px; color: #ffc93c; }
-  #vc-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,8,20,0.55); z-index: 6; pointer-events: none; }
-  .vc-screen-card { pointer-events: auto; background: rgba(20,16,32,0.92); border: 1px solid rgba(255,201,60,0.6); border-radius: 14px; padding: 22px 26px; max-width: 520px; text-align: center; }
-  .vc-screen-card h1 { font-size: 44px; margin: 0 0 8px; color: #ffc93c; letter-spacing: 4px; }
-  .vc-screen-card h2 { font-size: 30px; margin: 0 0 8px; color: #ffc93c; }
-  .vc-screen-card p { font-size: 14px; line-height: 1.5; }
-  .vc-screen-card button { display: block; margin: 10px auto 0; padding: 12px 28px; font-size: 17px; font-weight: 700; border-radius: 10px; border: none; background: #ffc93c; color: #14101f; cursor: pointer; }
-  .vc-small { font-size: 12px; color: #ffd9a0; }
-  #vc-phone, #vc-shop { top: 50%; left: 50%; transform: translate(-50%,-50%); width: 420px; max-width: 86vw; display: none; z-index: 7; }
-  .vc-row { padding: 7px 8px; border-radius: 8px; cursor: pointer; pointer-events: auto; }
-  .vc-row:hover { background: rgba(255,201,60,0.25); }
-  .vc-btn { z-index: 8; }
+  /* ---- HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-size: 14px; }
+  .vc-panel { background: rgba(10, 8, 20, 0.55); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 6px; padding: 8px 10px; backdrop-filter: blur(2px); }
+  #vc-mission { position: absolute; top: 12px; left: 12px; width: 300px; }
+  #vc-mission-name { font-size: 15px; font-weight: 700; color: #ffe94a; letter-spacing: 0.5px; }
+  #vc-mission-obj { font-size: 13px; line-height: 1.35; margin-top: 2px; }
+  #vc-mission-bar-wrap { height: 5px; background: rgba(255,255,255,0.2); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  #vc-mission-bar { height: 100%; width: 0%; background: #4ad87a; }
+  #vc-mission-timer { font-size: 13px; color: #ff9a5c; margin-top: 3px; }
+  #vc-police-list { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #9fc8ff; display: none; }
+  #vc-police-list .vc-police-count { color: #ff6a6a; font-weight: 700; }
+  #vc-topright { position: absolute; top: 12px; right: 12px; text-align: right; }
+  #vc-clock { font-size: 20px; font-weight: 700; }
+  #vc-money { font-size: 22px; font-weight: 800; color: #4ad87a; }
+  #vc-stars { font-size: 20px; color: #ffd94a; letter-spacing: 2px; }
+  #vc-status { font-size: 12px; color: #ff9a5c; font-weight: 700; }
+  #vc-right { position: absolute; top: 150px; right: 12px; width: 150px; text-align: right; }
+  .vc-weapon { font-size: 13px; padding: 3px 6px; margin-top: 3px; background: rgba(10,8,20,0.55); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; }
+  .vc-weapon.active { border-color: #ffe94a; color: #ffe94a; }
+  .vc-crew-card { font-size: 12px; padding: 3px 6px; margin-top: 3px; background: rgba(10,8,20,0.55); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; }
+  #vc-bottomleft { position: absolute; left: 12px; bottom: 12px; width: 230px; }
+  #vc-district { font-size: 18px; font-weight: 700; }
+  #vc-rank { font-size: 12px; color: #c9c9c9; margin-top: 2px; }
+  #vc-respect-wrap { height: 5px; background: rgba(255,255,255,0.2); border-radius: 3px; margin-top: 5px; overflow: hidden; }
+  #vc-respect-bar { height: 100%; width: 0%; background: #9a4ad8; }
+  #vc-minimap { width: 180px; height: 180px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); background: #1a1a24; margin-top: 8px; }
+  .vc-bar-wrap { height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; margin-top: 5px; overflow: hidden; }
+  #vc-health-bar { height: 100%; background: #4ad87a; }
+  #vc-armor-bar { height: 100%; background: #4a7ad8; }
+  #vc-dialog { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: 360px; display: none; }
+  #vc-dialog-name { font-size: 13px; font-weight: 700; color: #ffe94a; }
+  #vc-dialog-text { font-size: 13px; line-height: 1.4; margin-top: 2px; }
+  #vc-bottomright { position: absolute; right: 12px; bottom: 12px; text-align: right; }
+  #vc-speed { font-size: 44px; font-weight: 800; line-height: 1; }
+  #vc-speed-unit { font-size: 13px; color: #c9c9c9; }
+  #vc-gear { font-size: 14px; font-weight: 700; color: #ffe94a; }
+  #vc-car-name { font-size: 13px; color: #c9c9c9; }
+  #vc-radio { font-size: 12px; color: #9fc8ff; margin-top: 4px; }
+  #vc-banner { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); text-align: center; display: none; text-shadow: 0 2px 8px rgba(0,0,0,0.8); }
+  #vc-banner-title { font-size: 26px; font-weight: 800; color: #ffe94a; }
+  #vc-banner-text { font-size: 13px; max-width: 46vw; margin: 2px auto 0; }
+  /* ---- screens ---- */
+  .vc-screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: linear-gradient(180deg, rgba(20,10,40,0.55), rgba(10,5,25,0.75)); padding: 20px; }
+  .vc-screen h1 { font-size: 52px; font-weight: 900; letter-spacing: 2px; color: #ffe94a; text-shadow: 0 4px 24px rgba(255, 150, 80, 0.6); }
+  .vc-screen h2 { font-size: 26px; font-weight: 800; color: #ffe94a; }
+  .vc-screen p { font-size: 15px; line-height: 1.6; max-width: 520px; margin-top: 10px; color: #e8e8e8; }
+  .vc-screen .vc-keys { font-size: 13px; color: #c9c9c9; margin-top: 14px; line-height: 1.8; }
+  .vc-big-btn { pointer-events: auto; margin-top: 18px; font-size: 18px; font-weight: 700; padding: 12px 34px; border: none; border-radius: 8px; background: #ffe94a; color: #14101f; cursor: pointer; }
+  #vc-continue { display: none; background: #4a7ad8; color: #fff; }
+  #vc-win-total { font-size: 44px; font-weight: 900; color: #4ad87a; margin-top: 8px; }
+  /* ---- touch ---- */
+  .vc-touch { position: fixed; inset: 0; z-index: 8; pointer-events: none; display: none; }
+  body.vc-touch-device .vc-touch { display: block; }
+  .vc-joystick { position: absolute; left: 18px; bottom: 90px; width: 120px; height: 120px; border-radius: 50%; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.3); pointer-events: auto; touch-action: none; }
+  .vc-joystick-knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(255,255,255,0.35); }
+  .vc-btn { position: absolute; pointer-events: auto; min-width: 56px; min-height: 56px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.4); background: rgba(10,8,20,0.55); color: #fff; font-size: 13px; font-weight: 700; touch-action: none; }
+  .vc-btn[data-act="drive"] { right: 18px; bottom: 96px; width: 76px; height: 76px; }
+  .vc-btn[data-act="brake"] { right: 106px; bottom: 170px; }
+  .vc-btn[data-act="shoot"] { right: 106px; bottom: 80px; }
+  .vc-btn[data-act="enter"] { right: 190px; bottom: 110px; }
+  .vc-btn[data-act="nitro"] { right: 18px; bottom: 186px; }
+  .vc-btn[data-act="phone"] { right: 190px; bottom: 190px; }
+  .vc-btn[data-act="start"], .vc-btn[data-act="play"] { position: static; border-radius: 8px; min-width: 0; min-height: 0; padding: 12px 34px; font-size: 18px; background: #ffe94a; color: #14101f; margin-top: 18px; }
   @media (max-width: 700px) {
-    #vc-mission { font-size: 11px; }
-    #vc-police { display: none; }
-    #vc-crew { top: auto; bottom: 300px; }
-    #vc-dialog { bottom: 210px; }
-    #vc-map { width: 120px; height: 120px; }
+    #vc-mission { width: 210px; }
+    #vc-minimap { width: 120px; height: 120px; }
+    #vc-bottomleft { width: 150px; }
+    #vc-speed { font-size: 32px; }
+    .vc-screen h1 { font-size: 36px; }
   }
 </style>
 <script type="importmap">
-{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
 </script>
 </head>
-<body>
-<canvas id="game" aria-label="Vice Coast: explore a coastal city on foot and by car, steal cars, dodge police, and run story missions"></canvas>
-<div id="hud"></div>
-<p id="status" role="status" aria-live="polite"></p>
+<body data-screen="title">
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="vc-mission" class="vc-panel">
+    <div id="vc-mission-name">Sunset Taxi</div>
+    <div id="vc-mission-obj">Pick up Maya at the Sunset Pier</div>
+    <div id="vc-mission-bar-wrap"><div id="vc-mission-bar"></div></div>
+    <div id="vc-mission-timer"></div>
+    <div id="vc-police-list"></div>
+  </div>
+  <div id="vc-topright" class="vc-panel">
+    <div id="vc-clock">06:00</div>
+    <div id="vc-money">$0</div>
+    <div id="vc-stars">☆☆☆☆☆</div>
+    <div id="vc-status">CLEAR</div>
+  </div>
+  <div id="vc-right">
+    <div id="vc-weapons"></div>
+    <div id="vc-crew"></div>
+  </div>
+  <div id="vc-bottomleft" class="vc-panel">
+    <div id="vc-district">Beach</div>
+    <div id="vc-rank">Rank 0 · Respect 0</div>
+    <div id="vc-respect-wrap"><div id="vc-respect-bar"></div></div>
+    <canvas id="vc-minimap" width="180" height="180"></canvas>
+    <div class="vc-bar-wrap"><div id="vc-health-bar" style="width:100%"></div></div>
+    <div class="vc-bar-wrap"><div id="vc-armor-bar" style="width:0%"></div></div>
+  </div>
+  <div id="vc-dialog" class="vc-panel">
+    <div id="vc-dialog-name">Maya</div>
+    <div id="vc-dialog-text"></div>
+  </div>
+  <div id="vc-bottomright" class="vc-panel">
+    <div><span id="vc-speed">0</span> <span id="vc-speed-unit">km/h</span> <span id="vc-gear">1</span></div>
+    <div id="vc-car-name">On foot</div>
+    <div class="vc-bar-wrap"><div id="vc-car-cond" style="width:100%"></div></div>
+    <div class="vc-bar-wrap"><div id="vc-nitro-bar" style="width:100%"></div></div>
+    <div id="vc-radio">♪ Vice FM — Synthwave</div>
+  </div>
+  <div id="vc-banner">
+    <div id="vc-banner-title"></div>
+    <div id="vc-banner-text"></div>
+  </div>
+</div>
+
+<div id="vc-title" class="vc-screen">
+  <h1>VICE COAST</h1>
+  <p>A low-poly 3D open world in the sunset city. Ten story missions, police chases, a helicopter, street races, side jobs on your phone — and a whole coast to steal.</p>
+  <div class="vc-keys">WASD drive &amp; walk · Shift nitro / sprint · Space handbrake · F enter car · J shoot · E shop · Q radio · P phone · 1-3 crew · R restart</div>
+  <button class="vc-btn" data-act="start">START</button>
+  <button class="vc-big-btn" id="vc-continue">CONTINUE (C)</button>
+</div>
+
+<div id="vc-brief" class="vc-screen" style="display:none">
+  <h2 id="vc-brief-title">MISSION BRIEFING</h2>
+  <p id="vc-brief-text">Mission 1 of 10 — press Enter to play.</p>
+  <button class="vc-btn" data-act="play">GO</button>
+</div>
+
+<div id="vc-over" class="vc-screen" style="display:none">
+  <h2>BUSTED — OR WORSE</h2>
+  <p>The coast got you this time. Press R to run it back.</p>
+</div>
+
+<div id="vc-win" class="vc-screen" style="display:none">
+  <h2>VICE COAST — COMPLETE</h2>
+  <p>You ran all ten missions and walked away from the pier with the whole city behind you.</p>
+  <div id="vc-win-total">$0</div>
+  <div id="vc-win-rank">Rank 0 · 0/10 missions</div>
+  <p>Press R to play again.</p>
+</div>
+
+<div class="vc-touch">
+  <div class="vc-joystick"><div class="vc-joystick-knob"></div></div>
+  <button class="vc-btn" data-act="drive">DRIVE</button>
+  <button class="vc-btn" data-act="brake">BRAKE</button>
+  <button class="vc-btn" data-act="shoot">FIRE</button>
+  <button class="vc-btn" data-act="enter">ENTER</button>
+  <button class="vc-btn" data-act="nitro">NITRO</button>
+  <button class="vc-btn" data-act="phone">PHONE</button>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

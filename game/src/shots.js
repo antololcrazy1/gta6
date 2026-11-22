@@ -1,176 +1,132 @@
-// Staged screenshots for the v6 round-7 revision, behind
-// ?shot=chase|play|heist|end &seed=23. Each plays the real rules forward
-// from a fresh world for a fixed time, steered by a driving autopilot,
-// so the frame is what a short game really looks like and the same seed
-// always gives the same frame. The shots.json manifest (round 7) is a
-// richer format now: each entry carries its wanted level, its time of
-// day and a staging note, and the hero chase shot is flagged. The
-// staging driver reads the manifest and turns each entry into a query
-// with manifestEntryToQuery(); the game itself stages by name, with an
-// optional staging object that overrides the defaults below.
-// Hero first: a golden-hour sunset five-star chase down the beach
-// boulevard with cop cars, the police helicopter and dense traffic in
-// frame.
-import { STEP } from './config.js';
-import { EVENT_OVER } from './world.js';
-import { SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './hud.js';
+// The staged screenshot driver. The game reads ?shot=chase|play|heist|end
+// (and &seed=) from the URL and sets up a deterministic scene for that
+// shot, then tells the page it is ready. The four shots are the hero
+// sunset chase, a daytime play shot, the heist, and the win screen —
+// newest first, hero first, seed 31.
+import { makeRng } from './random.js';
 
-// A manifest entry (shots.json) to the URL query that stages it. The
-// entry's name is the output file (1-chase.jpg); the shot is the stem
-// after the leading number and dash, and the seed comes from the entry.
-export function manifestEntryToQuery(entry) {
-  const stem = String(entry.name || '').replace(/^\d+-/, '').replace(/\.(jpg|jpeg|png)$/i, '');
-  const shot = entry.shot || stem;
-  const seed = entry.seed ?? 23;
-  return `?shot=${shot}&seed=${seed}`;
+// Put the player in a car on a road, heading east, ready to drive.
+function putPlayerInCar(game, x, y, angle) {
+  const { state, world } = game;
+  const car = state.cars.find((c) => c.parked) || state.cars[0];
+  car.traffic = false;
+  car.parked = false;
+  car.x = x;
+  car.y = y;
+  car.angle = angle;
+  car.speed = 0;
+  car.health = 100;
+  state.player.x = x;
+  state.player.y = y;
+  state.player.angle = angle;
+  state.player.inCar = true;
+  state.player.carId = car.id;
+  state.player.health = 100;
+  state.player.armor = 100;
 }
 
-// The four shot names the staging driver may ask for, newest first —
-// the same order the manifest lists them in.
-export const SHOT_ORDER = ['chase', 'play', 'heist', 'end'];
-
-function drivePilot(state, roadY, heading) {
-  const car = state.cars.find((c) => c.id === state.player.carId);
-  if (!car) return { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: 0, enter: false };
-  const target = { x: car.x + 400 * heading, y: roadY };
-  const dx = target.x - car.x, dy = target.y - car.y;
-  const wantAngle = Math.atan2(dy, dx);
-  let diff = wantAngle - car.angle;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  const steer = diff > 0.08 ? 1 : diff < -0.08 ? -1 : 0;
-  const gas = Math.abs(diff) > 0.5 ? 1 : car.speed < 340 ? -1 : 0;
-  return { move: { x: steer, y: gas }, sprint: false, shoot: false, aimAngle: car.angle, enter: false };
-}
-
-function putPlayerInCar(world, x, y, angle) {
-  const st = world.state;
-  const car = st.cars.find((c) => c.parked) || st.cars[0];
-  car.traffic = false; car.parked = false; car.x = x; car.y = y; car.angle = angle; car.speed = 300;
-  st.player.x = x; st.player.y = y; st.player.angle = angle; st.player.inCar = true; st.player.carId = car.id;
-  return car;
-}
-
-export function stageShot(name, world, staging) {
-  const stage = staging || {};
-  world.reset();
-  const st = world.state;
-  if (name !== 'play' && name !== 'chase' && name !== 'end' && name !== 'heist') {
-    for (let i = 0; i < 6 / STEP; i += 1) world.step(STEP, { move: { x: 0, y: 0 } }, true);
-    return { screen: SCREEN_TITLE, best: 1250 };
+// Run the world a few frames so traffic, cops and the helicopter settle
+// into their staged positions before the shot is taken.
+function settle(game, frames) {
+  const { world } = game;
+  for (let i = 0; i < frames; i += 1) {
+    world.step(1 / 60, { move: { x: 0, y: 0 } }, false);
   }
-  if (name === 'chase') {
-    // The manifest says sunset at 5 stars; honour an explicit staging
-    // override when the driver passes one.
-    const wanted = stage.wanted ?? 5;
-    const timeOfDay = stage.timeOfDay || 'sunset';
-    world.weather.force(timeOfDay, false);
-    putPlayerInCar(world, 3400, 3050, Math.PI);
-    world.addWanted(wanted, true);
-    for (let i = 0; i < 7 / STEP; i += 1) {
-      const ev = world.step(STEP, drivePilot(st, 3050, -1), false);
-      if (ev & EVENT_OVER) break;
-      const car = st.cars.find((c) => c.id === st.player.carId);
-      if (car) { car.speed = Math.max(car.speed, 380); car.health = 100; }
-      st.player.health = 100;
-      if (st.wanted < wanted) st.wanted = wanted;
+}
+
+// Sync the state's weather snapshot from the controller. The live loop
+// does this every step, but the end shot finishes the run before any
+// step runs again, so staging syncs it by hand.
+function syncWeather(game) {
+  const { state, world } = game;
+  state.weather.phase = world.weather.phase();
+  state.weather.t = world.weather.t;
+  state.weather.raining = world.weather.raining;
+  state.sunDirection = world.weather.sunDirection();
+}
+
+export function stageShot(game, kind, seed) {
+  const { state, world } = game;
+  const rng = makeRng(seed || 31);
+  state.player.health = 100;
+  state.player.armor = 100;
+
+  if (kind === 'chase') {
+    // The hero frame: golden-hour sunset, five stars, the helicopter
+    // overhead, cop cars and a roadblock ahead on the road.
+    world.weather.setPhase('sunset');
+    syncWeather(game);
+    putPlayerInCar(game, 5000, 3300, 0);
+    // The hero car sits still while half a dozen cop cars ram it, and
+    // the screenshot capture itself takes seconds on a slow renderer —
+    // a stock car is wrecked and the player thrown out before the
+    // frame is taken. Reinforce the staged car so the chase holds
+    // together for the whole capture window, then heat it up.
+    const heroCar = state.cars.find((c) => c.id === state.player.carId);
+    if (heroCar) heroCar.health = 10000;
+    world.addWanted(5);
+    settle(game, 40);
+    // Belt and braces: the player must still be seated in the hero
+    // car when the frame is taken, whatever the settle did. Foot cops
+    // also chip the player through the car while it sits still, and
+    // a dead player flips the game to the game-over screen mid
+    // capture — so the staged player is reinforced as well.
+    if (heroCar) {
+      state.player.inCar = true;
+      state.player.carId = heroCar.id;
+      state.player.x = heroCar.x;
+      state.player.y = heroCar.y;
+      state.player.angle = heroCar.angle;
+      state.player.health = 10000;
+      state.player.armor = 10000;
     }
-    // Pull two pursuit cars into the frame flanking the road ahead so the
-    // chase reads, without sitting between the camera and the player car.
-    const pursuits = st.cops.filter((c) => c.inCar && c.car).slice(0, 2);
-    pursuits.forEach((cop, i) => {
-      const ahead = 260 + i * 90;
-      const side = i === 0 ? -120 : 120;
-      cop.car.x = st.player.x + Math.cos(st.player.angle) * ahead + Math.cos(st.player.angle + Math.PI / 2) * side;
-      cop.car.y = st.player.y + Math.sin(st.player.angle) * ahead + Math.sin(st.player.angle + Math.PI / 2) * side;
-      cop.car.angle = st.player.angle;
-      cop.car.speed = 320;
-      cop.x = cop.car.x; cop.y = cop.car.y;
-    });
-    st.message = `${wanted} stars — lose the Vice Coast PD!`;
-    st.messageTimer = 4;
-    return { screen: SCREEN_PLAY, best: st.money };
-  }
-  if (name === 'play') {
-    const wanted = stage.wanted ?? 2;
-    const timeOfDay = stage.timeOfDay || 'day';
-    world.weather.force(timeOfDay, false);
-    putPlayerInCar(world, 2400, 2550, 0);
-    world.startMission(1); // Package Run: collect around Palm Row.
-    world.addWanted(wanted, true);
-    for (let i = 0; i < 8 / STEP; i += 1) {
-      const ev = world.step(STEP, drivePilot(st, 2550, 1), false);
-      if (ev & EVENT_OVER) break;
-      const car = st.cars.find((c) => c.id === st.player.carId);
-      if (car) { car.speed = Math.max(car.speed, 320); car.health = 100; }
-      st.player.health = 100;
-      if (st.wanted < wanted) st.wanted = wanted;
+  } else if (kind === 'play') {
+    // Daytime driving through town with two stars on the tail.
+    world.weather.setPhase('day');
+    syncWeather(game);
+    putPlayerInCar(game, 4000, 2800, 0);
+    world.addWanted(2);
+    settle(game, 30);
+  } else if (kind === 'heist') {
+    // Mission nine at sunset: on foot among the gang cars, a shot
+    // fired, one rival car already burning.
+    world.weather.setPhase('sunset');
+    syncWeather(game);
+    world.startMission(8);
+    state.player.inCar = false;
+    state.player.carId = -1;
+    state.player.x = 8300;
+    state.player.y = 2400;
+    state.player.ammo = 240;
+    state.player.health = 100;
+    state.player.armor = 100;
+    const hurt = state.gangCars.find((c) => c.alive);
+    if (hurt) hurt.health = 40;
+    const target = state.gangCars.find((c) => c.alive && c !== hurt) || hurt;
+    if (target) {
+      const a = Math.atan2(target.y - state.player.y, target.x - state.player.x);
+      state.player.angle = a;
+      world.shoot(a);
     }
-    st.message = `Package Run — ${wanted} stars on you!`;
-    st.messageTimer = 4;
-    return { screen: SCREEN_PLAY, best: st.money };
+    settle(game, 6);
+    // Fire once more so a fresh bullet is in the air for the frame.
+    if (target) {
+      const a = Math.atan2(target.y - state.player.y, target.x - state.player.x);
+      state.player.fireCd = 0;
+      world.shoot(a);
+    }
+  } else if (kind === 'end') {
+    // The finale win: ten missions done, the real dynamic total.
+    world.weather.setPhase('sunset');
+    syncWeather(game);
+    for (let i = 0; i < 10; i += 1) world.completeMission();
+    syncWeather(game);
+    settle(game, 10);
   }
-  if (name === 'heist') return stageHeistShot(world);
-  world.weather.force('sunset', false);
-  putPlayerInCar(world, 800, 3300, Math.PI);
-  st.money = 9650; st.respect = 380;
-  world.debugWin();
-  for (let i = 0; i < 2 / STEP; i += 1) world.step(STEP, { move: { x: 0, y: 0 } }, true);
-  return { screen: SCREEN_WIN, best: st.money };
+  // The caller (main.js) sets window.__shotReady after a couple of
+  // rendered frames; the state is already staged here.
+  return true;
 }
 
-export function stageHeistShot(world) {
-  world.reset();
-  const st = world.state;
-  world.weather.force('sunset', false);
-  world.startMission(8); // Neon Reign, stage 0: "Torch 3 gang cars".
-  st.player.x = 8490; st.player.y = 2400; st.player.angle = -Math.PI / 2;
-  st.player.inCar = false; st.player.carId = -1;
-  st.player.ammo = 60; st.player.health = 100; st.player.armor = 50;
-  st.money = 7150; st.respect = 160;
-  for (let i = 0; i < 2.5 / STEP; i += 1) {
-    const ev = world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: 0, enter: false }, false);
-    if (ev & EVENT_OVER) break;
-    st.player.health = 100;
-  }
-  const gangCars = st.gangCars.filter((c) => c.health > 0);
-  gangCars.forEach((c, i) => {
-    const a = (i / Math.max(1, gangCars.length)) * Math.PI * 2;
-    c.x = st.player.x + Math.cos(a) * 260; c.y = st.player.y + Math.sin(a) * 260;
-  });
-  const target = st.gangCars.find((c) => c.health > 0);
-  if (target) {
-    st.player.angle = Math.atan2(target.y - st.player.y, target.x - st.player.x);
-    st.player.shootCd = 0;
-    world.shoot(st.player.angle);
-    for (let i = 0; i < 10; i += 1) {
-      world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: st.player.angle, enter: false }, false);
-      st.player.health = 100;
-      if (st.hitMarker > 0) break;
-    }
-    if (st.hitMarker <= 0) {
-      st.player.angle = Math.atan2(target.y - st.player.y, target.x - st.player.x);
-      st.player.shootCd = 0;
-      world.shoot(st.player.angle);
-      for (let i = 0; i < 12; i += 1) {
-        world.step(STEP, { move: { x: 0, y: 0 }, sprint: false, shoot: false, aimAngle: st.player.angle, enter: false }, false);
-        st.player.health = 100;
-        if (st.hitMarker > 0) break;
-      }
-    }
-  }
-  st.message = 'Neon Reign — torch the Viper cars!';
-  st.messageTimer = 4;
-  st.missionFlash = 0;
-  // One last fresh volley so a bullet and muzzle flash are in the frame.
-  const last = st.gangCars.find((c) => c.health > 0);
-  if (last) {
-    st.player.angle = Math.atan2(last.y - st.player.y, last.x - st.player.x);
-    st.player.shootCd = 0;
-    world.shoot(st.player.angle);
-  }
-  // Face back north down the road so the turf marker is off to the side
-  // instead of sitting between the camera and the player.
-  st.player.angle = -Math.PI / 2;
-  return { screen: SCREEN_PLAY, best: st.money };
-}
+// The four shots, in manifest order: hero first.
+export const SHOT_KINDS = ['chase', 'play', 'heist', 'end'];

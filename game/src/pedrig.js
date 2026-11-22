@@ -1,183 +1,172 @@
-// Human pedestrian rigs for Vice Coast round 7.
-//
-// The old pedestrians were a box and a ball. This module builds a proper
-// human figure from the same low-poly language as the player character:
-// thigh + calf + shoe on each leg with the shoe bottom exactly at ground
-// level, arms that swing opposite to the legs, a head with hair or a hat,
-// and a body whose height and width vary per pedestrian so a crowd never
-// looks cloned. A walk cycle drives the joints: about four steps a second,
-// the knee bends on the forward swing, the body bobs, and the hips swing
-// wider when the pedestrian hurries.
-//
-// A rig is a THREE.Group built once per pedestrian and then posed every
-// frame by poseRig(). The rig reads its variation from the pedestrian's
-// own data (height, build, shirt, trousers, hair, hat), so the rules
-// layer owns the variety and this module owns the shape.
-import * as THREE from 'three';
+// Human rigs for pedestrians and the player. A person is built from
+// thigh + calf + shoe segments on each leg, with the shoe bottom exactly at
+// ground level, arms that swing opposite to the legs, a torso that bobs and
+// a head. The walk is a real walk: about four steps a second, the knee
+// bending on the forward swing, the hips swinging wider when running, a
+// slight forward lean at a sprint, gentle breathing when standing still.
+import { CFG } from './config.js';
 
-// Skin tones, hair colours and hat colours the rig picks from by seed.
-export const SKIN_TONES = [0xe8b88a, 0xc98d64, 0x8d5a3b, 0xf0c8a0, 0x6b4423];
-export const HAIR_COLORS = [0x1a1a1a, 0x4a2c14, 0x8a8a8a, 0xd9a441, 0x6b2d1a];
-export const HAT_COLORS = [0xe74c3c, 0xf1c40f, 0x3498db, 0xecf0f1, 0x2ecc71];
+const SKIN = [0xe8b88a, 0xc98d5f, 0x8a5a3b, 0xf0c8a0, 0x6e4426];
+const SHIRTS = [0xd84a4a, 0x4a7ad8, 0x4ad87a, 0xe8c84a, 0x9a4ad8, 0xe8e8e8, 0x222222, 0xe87a4a, 0x4ad8d8, 0xd84a9a];
+const TROUSERS = [0x2a3a5a, 0x3a3a3a, 0x5a3a2a, 0x2a5a3a, 0x6a6a6a, 0x1a1a2a];
+const HAIR_COLORS = [0x1a1a1a, 0x4a2a1a, 0x8a6a3a, 0xaaaaaa, 0x6a1a1a];
 
-function shade(color, f) {
-  const c = new THREE.Color(color);
-  c.multiplyScalar(f);
-  return c.getHex();
-}
+// Build one human as a THREE.Group. opts: height (units), build
+// ('slim' | 'average' | 'heavy'), shirt, trousers, skin, hair, hat.
+// The group origin is at the ground, under the feet.
+export function buildHumanRig(THREE, opts) {
+  const o = opts || {};
+  const height = o.height || 96;
+  const build = o.build || 'average';
+  const widthScale = build === 'slim' ? 0.85 : build === 'heavy' ? 1.25 : 1;
+  const legLen = height * 0.48;
+  const thighLen = legLen * 0.52;
+  const calfLen = legLen * 0.48;
+  const torsoLen = height * 0.3;
+  const headR = height * 0.075;
 
-// Pick a deterministic value from a list by a pedestrian's seed.
-function pickBySeed(list, seed, salt) {
-  const n = Math.abs(Math.sin(seed * 127.1 + salt * 311.7) * 43758.5453);
-  return list[Math.floor(n % 1 * list.length) % list.length];
-}
+  const skin = new THREE.MeshLambertMaterial({ color: o.skin ?? SKIN[0] });
+  const shirtMat = new THREE.MeshLambertMaterial({ color: o.shirt ?? SHIRTS[0] });
+  const trouserMat = new THREE.MeshLambertMaterial({ color: o.trousers ?? TROUSERS[0] });
+  const hairMat = new THREE.MeshLambertMaterial({ color: o.hair ?? HAIR_COLORS[0] });
 
-// The variation a pedestrian carries: height in world units (a 1.0
-// figure is about 96 tall), body width, shirt and trouser colours, a
-// skin tone, and either hair or a hat. Beachgoers get shorts, a bare
-// torso or a bright top, and sandals instead of shoes.
-export function pedVariation(ped) {
-  const seed = ped.seed ?? (ped.x * 0.013 + ped.y * 0.007);
-  // The rules layer (world.js) already rolled each pedestrian's look;
-  // use it when present so the rig matches the saved state, and fall
-  // back to a seed-derived look for any pedestrian built without one.
-  const height = ped.height ?? (0.88 + ((Math.abs(Math.sin(seed * 91.7)) * 0.24)));
-  const build = ped.build ?? (0.85 + (Math.abs(Math.sin(seed * 57.3)) * 0.35));
-  const skin = pickBySeed(SKIN_TONES, seed, 1);
-  const hair = ped.hair ?? pickBySeed(HAIR_COLORS, seed, 2);
-  const hat = ped.hat !== undefined ? ped.hat : (ped.beach ? null : (Math.abs(Math.sin(seed * 33.9)) < 0.3 ? pickBySeed(HAT_COLORS, seed, 3) : null));
-  return {
-    height,
-    build,
-    skin,
-    hair,
-    hat,
-    shirt: ped.beach ? pickBySeed([0xff6b9d, 0x2ecc71, 0xf1c40f, 0x48dbfb, 0xecf0f1], seed, 4) : ped.color,
-    trousers: ped.trousers ?? (ped.beach ? 0xe8c98f : pickBySeed([0x2c3e50, 0x34495e, 0x5d4037, 0x1c2733, 0x6b7c93], seed, 5)),
-    shoe: ped.beach ? 0x8a6a42 : 0x1a1a1a,
-  };
-}
+  const group = new THREE.Group();
 
-function boxMesh(w, h, d, color) {
-  const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color }),
-  );
-  m.castShadow = true;
-  return m;
-}
-
-// Build one pedestrian rig. The joints are returned so poseRig() can
-// drive them; the group is positioned by the renderer each frame.
-export function buildPedRig(ped, variation) {
-  const v = variation || pedVariation(ped);
-  const g = new THREE.Group();
-  const s = v.height; // overall scale
-  const w = v.build; // body-width scale
-
-  // Legs: hip pivots at the body's base, thigh down to the knee, calf
-  // down to the ankle, shoe forward from the ankle. The numbers are
-  // chosen so the shoe's bottom lands exactly at y = 0 when the leg
-  // hangs straight: hip 52, thigh 26, calf 22, shoe 6 tall, all scaled.
+  // Legs. Each leg is a pivot at the hip: thigh mesh hangs down from it,
+  // then a knee pivot holds the calf, then the shoe at the bottom. The
+  // shoe bottom sits exactly at y = 0 when the leg is straight.
   function makeLeg(side) {
     const hip = new THREE.Group();
-    hip.position.set(0, 52 * s, side * 8 * w);
-    const thigh = boxMesh(11 * w, 26 * s, 11 * w, v.trousers);
-    thigh.position.y = -13 * s;
+    hip.position.set(7 * widthScale * side, legLen, 0);
+    const thigh = new THREE.Mesh(new THREE.BoxGeometry(9 * widthScale, thighLen, 10 * widthScale), trouserMat);
+    thigh.position.y = -thighLen / 2;
     hip.add(thigh);
     const knee = new THREE.Group();
-    knee.position.y = -26 * s;
+    knee.position.y = -thighLen;
     hip.add(knee);
-    const calf = boxMesh(9 * w, 22 * s, 9 * w, shade(v.trousers, 0.85));
-    calf.position.y = -11 * s;
+    const calf = new THREE.Mesh(new THREE.BoxGeometry(8 * widthScale, calfLen, 9 * widthScale), trouserMat);
+    calf.position.y = -calfLen / 2;
     knee.add(calf);
-    const shoe = boxMesh(10 * w, 6 * s, 20 * w, v.shoe);
-    shoe.position.set(3, -25 * s, 0);
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(9 * widthScale, 6, 20 * widthScale), new THREE.MeshLambertMaterial({ color: 0x1c1c1c }));
+    shoe.position.set(0, -calfLen - 3, 4);
     knee.add(shoe);
-    g.add(hip);
-    return { hip, knee };
+    group.add(hip);
+    return { hip, knee, shoe };
   }
-
-  function makeArm(side) {
-    const shoulder = new THREE.Group();
-    shoulder.position.set(0, 92 * s, side * 20 * w);
-    const upper = boxMesh(9 * w, 30 * s, 9 * w, v.shirt);
-    upper.position.y = -15 * s;
-    shoulder.add(upper);
-    const elbow = new THREE.Group();
-    elbow.position.y = -30 * s;
-    shoulder.add(elbow);
-    const forearm = boxMesh(8 * w, 26 * s, 8 * w, v.skin);
-    forearm.position.y = -13 * s;
-    elbow.add(forearm);
-    g.add(shoulder);
-    return { shoulder, elbow };
-  }
-
-  const torso = boxMesh(30 * w, 42 * s, 17 * w, v.shirt);
-  torso.position.y = 73 * s;
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(11 * s, 12, 10),
-    new THREE.MeshLambertMaterial({ color: v.skin }),
-  );
-  head.position.y = 104 * s;
-  head.castShadow = true;
-  g.add(torso, head);
-  if (v.hat) {
-    const hat = boxMesh(24 * w, 7 * s, 24 * w, v.hat);
-    hat.position.y = 112 * s;
-    g.add(hat);
-    const brim = boxMesh(28 * w, 3 * s, 28 * w, v.hat);
-    brim.position.y = 109 * s;
-    g.add(brim);
-  } else {
-    const hair = new THREE.Mesh(
-      new THREE.SphereGeometry(11.5 * s, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
-      new THREE.MeshLambertMaterial({ color: v.hair }),
-    );
-    hair.position.y = 106 * s;
-    hair.castShadow = true;
-    g.add(hair);
-  }
-
   const legL = makeLeg(-1);
   const legR = makeLeg(1);
+
+  // Torso, from the hips up.
+  const torso = new THREE.Group();
+  torso.position.y = legLen;
+  const chest = new THREE.Mesh(new THREE.BoxGeometry(30 * widthScale, torsoLen, 16 * widthScale), shirtMat);
+  chest.position.y = torsoLen / 2;
+  torso.add(chest);
+  group.add(torso);
+
+  // Arms hang from the shoulders and swing opposite to the legs.
+  function makeArm(side) {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(19 * widthScale * side, torsoLen - 4, 0);
+    torso.add(shoulder);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(8 * widthScale, torsoLen * 0.85, 9 * widthScale), shirtMat);
+    arm.position.y = -torsoLen * 0.42;
+    shoulder.add(arm);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(7 * widthScale, 7, 8 * widthScale), skin);
+    hand.position.y = -torsoLen * 0.85;
+    shoulder.add(hand);
+    return { shoulder };
+  }
   const armL = makeArm(-1);
   const armR = makeArm(1);
-  g.userData = {
-    torso, head,
-    legL, legR, armL, armR,
-    height: v.height,
-    walkPhase: ped.walkPhase || 0,
+
+  // Head with hair or a hat.
+  const head = new THREE.Group();
+  head.position.y = torsoLen + headR * 0.8;
+  torso.add(head);
+  const skull = new THREE.Mesh(new THREE.BoxGeometry(headR * 1.7, headR * 1.8, headR * 1.6), skin);
+  head.add(skull);
+  if (o.hat === 'cap') {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(headR * 1.9, headR * 0.6, headR * 1.8), new THREE.MeshLambertMaterial({ color: o.hatColor ?? 0xd84a4a }));
+    cap.position.y = headR * 0.9;
+    head.add(cap);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(headR * 1.8, headR * 0.25, headR * 0.9), cap.material);
+    brim.position.set(0, headR * 0.7, headR * 1.1);
+    head.add(brim);
+  } else if (o.hat === 'beanie') {
+    const beanie = new THREE.Mesh(new THREE.BoxGeometry(headR * 1.8, headR * 0.8, headR * 1.7), new THREE.MeshLambertMaterial({ color: o.hatColor ?? 0x4a7ad8 }));
+    beanie.position.y = headR * 0.85;
+    head.add(beanie);
+  } else {
+    const hair = new THREE.Mesh(new THREE.BoxGeometry(headR * 1.75, headR * 0.9, headR * 1.65), hairMat);
+    hair.position.y = headR * 0.75;
+    head.add(hair);
+  }
+
+  const rig = {
+    group,
+    parts: { legL, legR, armL, armR, torso, head },
+    height,
+    build,
+    // The walk phase, in radians. Advances with distance walked.
+    phase: 0,
   };
-  return g;
+  return rig;
 }
 
-// Pose a rig for one frame. phase advances about 4 steps a second while
-// the pedestrian walks; swing is 0 when standing still. The knee bends
-// on the forward swing, the arms counter-swing, the body bobs twice per
-// stride and the hips sway a little wider when hurrying.
-export function poseRig(rig, phase, moving, hurrying, time) {
-  const u = rig.userData;
-  const swing = moving ? (hurrying ? 0.85 : 0.62) : 0;
-  const left = Math.sin(phase);
-  const right = Math.sin(phase + Math.PI);
-  u.legL.hip.rotation.x = left * swing;
-  u.legR.hip.rotation.x = right * swing;
-  // The knee only bends while its leg swings forward, never backward.
-  u.legL.knee.rotation.x = Math.max(0, -right) * 1.05 * swing;
-  u.legR.knee.rotation.x = Math.max(0, -left) * 1.05 * swing;
-  // Arms swing opposite to the legs on the same side.
-  u.armL.shoulder.rotation.x = right * swing * 0.75;
-  u.armR.shoulder.rotation.x = left * swing * 0.75;
-  u.armL.elbow.rotation.x = -0.25 - Math.max(0, right) * 0.35 * swing;
-  u.armR.elbow.rotation.x = -0.25 - Math.max(0, left) * 0.35 * swing;
-  // Body bob: two bobs per full stride, plus a gentle breathing sway
-  // when the pedestrian stands still.
-  const bob = moving ? Math.abs(Math.cos(phase)) * 3.5 : Math.sin(time * 1.6) * 1.2;
-  u.torso.position.y = 73 * u.height + bob;
-  u.head.position.y = 104 * u.height + bob;
-  // A slight forward lean and hip sway while hurrying.
-  u.torso.rotation.x = hurrying ? 0.08 : 0;
-  u.torso.rotation.z = moving ? Math.sin(phase) * 0.05 : 0;
+// Animate one rig for a frame. speed is units per second; dt is seconds.
+// When speed is near zero the person breathes gently instead of walking.
+export function animateHumanRig(rig, speed, dt, running) {
+  const parts = rig.parts;
+  const stepRate = CFG.WALK_STEPS_PER_SEC * Math.PI * (running ? 1.5 : 1);
+  if (speed > 12) {
+    // Four steps a second at a walk: the phase advances with the stride.
+    rig.phase += dt * stepRate * (0.6 + speed / CFG.WALK_SPEED);
+    const s = Math.sin(rig.phase);
+    const c = Math.cos(rig.phase);
+    // Legs swing forward and back.
+    parts.legL.hip.rotation.x = s * (running ? 0.95 : 0.65);
+    parts.legR.hip.rotation.x = -s * (running ? 0.95 : 0.65);
+    // The knee bends on the forward swing: the front leg's knee lifts.
+    parts.legL.knee.rotation.x = Math.max(0, -c) * (running ? 1.3 : 0.9);
+    parts.legR.knee.rotation.x = Math.max(0, c) * (running ? 1.3 : 0.9);
+    // Arms swing opposite to the legs.
+    parts.armL.shoulder.rotation.x = -s * 0.55;
+    parts.armR.shoulder.rotation.x = s * 0.55;
+    // The body bobs twice per stride and leans forward at a sprint.
+    const bob = Math.abs(Math.cos(rig.phase)) * (running ? 5 : 3);
+    parts.torso.position.y = rig.height * 0.48 - bob * 0.4 + (running ? 2 : 0);
+    parts.torso.rotation.x = running ? 0.14 : 0.05;
+    // Hips swing wider when running.
+    parts.torso.rotation.z = s * (running ? 0.1 : 0.05);
+    parts.torso.rotation.y = -s * 0.08;
+  } else {
+    // Standing idle: ease the limbs back to neutral and breathe.
+    const t = performance.now() / 1000;
+    parts.legL.hip.rotation.x *= 0.8;
+    parts.legR.hip.rotation.x *= 0.8;
+    parts.legL.knee.rotation.x *= 0.8;
+    parts.legR.knee.rotation.x *= 0.8;
+    parts.armL.shoulder.rotation.x = Math.sin(t * 1.4) * 0.04;
+    parts.armR.shoulder.rotation.x = -Math.sin(t * 1.4) * 0.04;
+    parts.torso.position.y = rig.height * 0.48 + Math.sin(t * 1.4) * 1.2;
+    parts.torso.rotation.x = 0;
+    parts.torso.rotation.z = 0;
+    parts.torso.rotation.y = 0;
+  }
+}
+
+// Deterministic look data for one pedestrian, from an rng.
+export function randomPedLook(rng, beach) {
+  const hatRoll = rng.f();
+  return {
+    height: beach ? rng.range(88, 104) : rng.range(84, 108),
+    build: rng.pick(['slim', 'average', 'average', 'heavy']),
+    shirt: rng.pick(SHIRTS),
+    trousers: beach ? rng.pick([0xe84a6a, 0x4ad8d8, 0xe8c84a, 0xd84a4a]) : rng.pick(TROUSERS),
+    skin: rng.pick(SKIN),
+    hair: rng.pick(HAIR_COLORS),
+    hat: hatRoll < 0.16 ? 'cap' : hatRoll < 0.26 ? 'beanie' : null,
+    hatColor: rng.pick([0xd84a4a, 0x4a7ad8, 0xe8c84a, 0x222222]),
+  };
 }

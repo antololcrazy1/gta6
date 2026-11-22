@@ -1,117 +1,170 @@
-// Vice Coast story for the v6 rebuild: the 10-mission chain and its flow.
-// Pure mission data plus the target/start/complete helpers; the world owns
-// the live state object and passes it in, so this file has no browser or
-// drawing. Timers are retimed for the 11400x6600 map: Package Run 150 s,
-// Getaway and Sunset Showdown 180 s, Harbor Lights 180 s, the Finale 180 s.
-// The story chain pays $9,650 in total; the win screen shows the real
-// dynamic total of all money earned, never a fixed number.
-import { NIGHT_DROPS } from './config.js';
-import { GANG_TURF } from './gang.js';
+// The ten story missions of Vice Coast, in order. Each mission is data:
+// a name, a payout, an optional timer, a briefing line, and a list of
+// stages. A stage is a 'goto' (reach a place), a 'torch' (destroy gang
+// cars), a 'hold' (stay on a spot for some seconds) or a 'hide' (lose the
+// heat until the wanted level reaches zero). The world drives the stage
+// machine; this file only describes what has to happen.
+import { LANDMARKS } from './config.js';
+
+// The four night-drop corners, one at each corner of the city.
+const CORNERS = [
+  { x: 800, y: 600, name: 'NW corner' },
+  { x: 10600, y: 600, name: 'NE corner' },
+  { x: 800, y: 6000, name: 'SW corner' },
+  { x: 10600, y: 6000, name: 'SE corner' },
+];
+
+// Three package spots around Palm Row, and three crates on the docks road.
+const PACKAGE_SPOTS = [
+  { x: 4200, y: 1500, name: 'Palm Row package' },
+  { x: 4800, y: 2100, name: 'Palm Row package' },
+  { x: 3600, y: 2400, name: 'Palm Row package' },
+];
+const CRATE_SPOTS = [
+  { x: 9600, y: 5000, name: 'Docks crate' },
+  { x: 10100, y: 5200, name: 'Docks crate' },
+  { x: 9800, y: 5600, name: 'Docks crate' },
+];
+
+function gotoStage(x, y, label) {
+  return { kind: 'goto', x, y, label };
+}
 
 export const MISSIONS = [
-  { id: 1, name: 'Sunset Taxi', brief: 'Pick up Maya at the pier, then drop her at the Neon Hotel. Drive smooth — she tips for speed.', reward: 150 },
-  { id: 2, name: 'Package Run', brief: 'Collect 3 packages around Palm Row and deliver them to the docks. Watch the clock.', reward: 250 },
-  { id: 3, name: 'Getaway', brief: 'Grab the bag from the arcade and reach the hideout in time. The cops will not wait.', reward: 350 },
-  { id: 4, name: 'Lose the Heat', brief: 'You are at 3 stars. Break line of sight and stay hidden until the heat dies down.', reward: 400 },
-  { id: 5, name: 'The Sunset Heist', brief: 'Hit the Coral Bank vault, grab the loot, and escape to the hideout. Finish this and Vice Coast is yours.', reward: 800 },
-  { id: 6, name: 'Vice Nights', brief: 'Collect 4 night drops, one at each corner of the city, then deliver them to the hideout. It starts hot — 4 stars the moment you begin, heli already up.', reward: 1000 },
-  { id: 7, name: 'Sunset Showdown', brief: 'Reach the Sunset Pier in time with 5 stars on you. Finish this and Vice Coast is yours.', reward: 1200 },
-  { id: 8, name: 'Harbor Lights', brief: 'Smuggle run: collect 3 crates on the docks road, then deliver them to the boat at the Sunset Pier. 180 seconds on the clock.', reward: 1400 },
-  { id: 9, name: 'Neon Reign', brief: 'Gang turf war: torch 3 rival gang cars in Neon Downtown, then hold the turf marker for 20 seconds. The Vipers will not give it up easy.', reward: 1600 },
-  { id: 10, name: 'Vice Coast Finale', brief: 'The last job: hit Coral Bank one more time at 5 stars, then escape to the Sunset Pier in 180 seconds. Pull this off and the coast is truly yours.', reward: 2500 },
+  {
+    name: 'Sunset Taxi',
+    pay: 150,
+    timer: 0,
+    briefing: 'Maya is waiting at the pier. Pick her up, then drop her at the Neon Hotel. She tips for speed.',
+    stages: [
+      gotoStage(LANDMARKS.sunsetPier.x, LANDMARKS.sunsetPier.y, 'Pick up Maya at the Sunset Pier'),
+      gotoStage(LANDMARKS.neonHotel.x, LANDMARKS.neonHotel.y, 'Drop Maya at the Neon Hotel'),
+    ],
+  },
+  {
+    name: 'Package Run',
+    pay: 250,
+    timer: 150,
+    briefing: 'Three packages around Palm Row, then to the docks. The clock is running.',
+    stages: [
+      gotoStage(PACKAGE_SPOTS[0].x, PACKAGE_SPOTS[0].y, 'Package 1/3 — Palm Row'),
+      gotoStage(PACKAGE_SPOTS[1].x, PACKAGE_SPOTS[1].y, 'Package 2/3 — Palm Row'),
+      gotoStage(PACKAGE_SPOTS[2].x, PACKAGE_SPOTS[2].y, 'Package 3/3 — Palm Row'),
+      gotoStage(LANDMARKS.coralDocks.x, LANDMARKS.coralDocks.y, 'Deliver the packages to the docks'),
+    ],
+  },
+  {
+    name: 'Getaway',
+    pay: 350,
+    timer: 180,
+    briefing: 'Grab the bag from the Pixel Arcade and reach the hideout before the cops box you in.',
+    startWanted: 2,
+    stages: [
+      gotoStage(LANDMARKS.pixelArcade.x, LANDMARKS.pixelArcade.y, 'Grab the bag at the Pixel Arcade'),
+      gotoStage(LANDMARKS.hideout.x, LANDMARKS.hideout.y, 'Reach the Hideout'),
+    ],
+  },
+  {
+    name: 'Lose the Heat',
+    pay: 400,
+    timer: 0,
+    briefing: 'Three stars on you. Break line of sight and stay hidden until the heat dies down.',
+    startWanted: 3,
+    stages: [
+      { kind: 'hide', label: 'Stay hidden until the heat dies down' },
+    ],
+  },
+  {
+    name: 'The Sunset Heist',
+    pay: 800,
+    timer: 0,
+    briefing: 'Hit the Coral Bank vault, grab the loot, and get out to the hideout.',
+    stages: [
+      gotoStage(LANDMARKS.coralBank.x, LANDMARKS.coralBank.y, 'Hit the Coral Bank vault'),
+      gotoStage(LANDMARKS.hideout.x, LANDMARKS.hideout.y, 'Escape to the Hideout'),
+    ],
+  },
+  {
+    name: 'Vice Nights',
+    pay: 1000,
+    timer: 0,
+    briefing: 'Four night drops, one at each corner of the city. It starts hot — four stars, helicopter already up.',
+    startWanted: 4,
+    stages: [
+      gotoStage(CORNERS[0].x, CORNERS[0].y, 'Night drop 1/4'),
+      gotoStage(CORNERS[1].x, CORNERS[1].y, 'Night drop 2/4'),
+      gotoStage(CORNERS[2].x, CORNERS[2].y, 'Night drop 3/4'),
+      gotoStage(CORNERS[3].x, CORNERS[3].y, 'Night drop 4/4'),
+      gotoStage(LANDMARKS.hideout.x, LANDMARKS.hideout.y, 'Deliver the drops to the Hideout'),
+    ],
+  },
+  {
+    name: 'Sunset Showdown',
+    pay: 1200,
+    timer: 180,
+    briefing: 'Reach the Sunset Pier in time with five stars on you. Do not stop.',
+    startWanted: 5,
+    stages: [
+      gotoStage(LANDMARKS.sunsetPier.x, LANDMARKS.sunsetPier.y, 'Reach the Sunset Pier'),
+    ],
+  },
+  {
+    name: 'Harbor Lights',
+    pay: 1400,
+    timer: 180,
+    briefing: 'A smuggle run: three crates on the docks road, then deliver them to the boat at the Sunset Pier.',
+    stages: [
+      gotoStage(CRATE_SPOTS[0].x, CRATE_SPOTS[0].y, 'Crate 1/3 — Docks road'),
+      gotoStage(CRATE_SPOTS[1].x, CRATE_SPOTS[1].y, 'Crate 2/3 — Docks road'),
+      gotoStage(CRATE_SPOTS[2].x, CRATE_SPOTS[2].y, 'Crate 3/3 — Docks road'),
+      gotoStage(LANDMARKS.pierBoat.x, LANDMARKS.pierBoat.y, 'Deliver the crates to the boat at the Sunset Pier'),
+    ],
+  },
+  {
+    name: 'Neon Reign',
+    pay: 1600,
+    timer: 0,
+    briefing: 'A gang turf war. Torch three rival gang cars in Neon Downtown, then hold the turf marker.',
+    stages: [
+      { kind: 'torch', count: 3, label: 'Torch 3 rival gang cars (0/3)' },
+      { kind: 'hold', x: LANDMARKS.turf.x, y: LANDMARKS.turf.y, secs: 20, label: 'Hold the turf marker — 20s' },
+    ],
+  },
+  {
+    name: 'Vice Coast Finale',
+    pay: 2500,
+    timer: 180,
+    briefing: 'The last job. Hit Coral Bank one more time at five stars, then escape to the Sunset Pier.',
+    startWanted: 5,
+    stages: [
+      gotoStage(LANDMARKS.coralBank.x, LANDMARKS.coralBank.y, 'Hit Coral Bank — one last time'),
+      gotoStage(LANDMARKS.sunsetPier.x, LANDMARKS.sunsetPier.y, 'Escape to the Sunset Pier'),
+    ],
+  },
 ];
 
-export const HARBOR_CRATES = [
-  { x: 9200, y: 5600 },
-  { x: 9800, y: 5600 },
-  { x: 10400, y: 5600 },
-];
+// The story chain pays 9,650 across the ten missions.
+export const STORY_TOTAL = MISSIONS.reduce((n, m) => n + m.pay, 0);
 
-export function createMissionState() {
-  return {
-    missionIndex: 0, missionStage: 0, missionTimer: 0, packagesLeft: 0, collected: 0,
-    missionTarget: null, missionText: '', missionFlash: 0, missionsDone: 0,
-    missionHold: 0, gangMissionKills: 0, gangPrimed: false,
-  };
-}
-
-export function missionTargetFor(missionIndex, missionStage, landmarks) {
-  const L = landmarks;
-  if (missionIndex === 0) return missionStage === 0 ? { ...L.pier, label: 'Pick up Maya' } : { ...L.hotel, label: 'Drop Maya off' };
-  if (missionIndex === 1) return missionStage < 3 ? { ...L.packages[missionStage], label: `Package ${missionStage + 1}/3` } : { ...L.docks, label: 'Deliver to the docks' };
-  if (missionIndex === 2) return missionStage === 0 ? { ...L.arcade, label: 'Grab the bag' } : { ...L.hideout, label: 'Reach the hideout!' };
-  if (missionIndex === 3) return { ...L.hideout, label: 'Get to the hideout' };
-  if (missionIndex === 4) return missionStage === 0 ? { ...L.bank, label: 'Hit Coral Bank' } : { ...L.hideout, label: 'Escape to the hideout!' };
-  if (missionIndex === 5) return missionStage < 4 ? { ...NIGHT_DROPS[missionStage], label: `Night drop ${missionStage + 1}/4` } : { ...L.hideout, label: 'Deliver to the hideout' };
-  if (missionIndex === 6) return { ...L.pier, label: 'Reach the Sunset Pier' };
-  if (missionIndex === 7) return missionStage < 3 ? { ...HARBOR_CRATES[missionStage], label: `Crate ${missionStage + 1}/3` } : { ...L.boat, label: 'Deliver to the pier boat' };
-  if (missionIndex === 8) return missionStage === 0 ? { ...GANG_TURF[0], label: 'Torch 3 gang cars' } : { ...GANG_TURF[0], label: 'Hold the turf marker' };
-  if (missionIndex === 9) return missionStage === 0 ? { ...L.bank, label: 'Hit Coral Bank — final job' } : { ...L.pier, label: 'Escape to the Sunset Pier!' };
-  return null;
-}
-
-export function refreshMissionTarget(state, landmarks) {
-  const m = state.missionIndex;
-  if (m >= MISSIONS.length) { state.missionTarget = null; state.missionText = 'Vice Coast is yours. Free roam!'; return; }
-  state.missionTarget = missionTargetFor(m, state.missionStage, landmarks);
-  state.missionText = `${MISSIONS[m].name} — ${state.missionTarget.label}`;
-}
-
-export function missionTimerFor(missionIndex) {
-  if (missionIndex === 1) return 150;
-  if (missionIndex === 2 || missionIndex === 6) return 180;
-  if (missionIndex === 7) return 180;
-  if (missionIndex === 9) return 180;
-  return 0;
-}
-
-// Round 7: the story chain's total payout, computed from the data
-// instead of written as a fixed number, and a progress summary the HUD
-// draws in the mission panel.
-export function totalReward() {
-  return MISSIONS.reduce((sum, m) => sum + m.reward, 0);
-}
-
-export function missionProgress(state) {
-  const done = state.missionsDone || 0;
-  const total = MISSIONS.length;
-  const current = state.missionIndex < total ? MISSIONS[state.missionIndex] : null;
-  return {
-    done, total,
-    currentName: current ? current.name : 'Free roam',
-    currentReward: current ? current.reward : 0,
-    totalReward: totalReward(),
-    stageText: state.missionText || '',
-  };
-}
-
-export function startMission(state, i, landmarks, addWanted) {
-  state.missionIndex = i;
-  state.missionStage = 0;
-  state.packagesLeft = 3;
-  state.collected = 0;
-  state.missionTimer = missionTimerFor(i);
-  state.missionHold = 0;
-  state.gangMissionKills = 0;
-  state.gangPrimed = false;
-  if (i === 3) addWanted(3, true);
-  if (i === 5) addWanted(4, true);
-  if (i === 6 || i === 9) addWanted(5, true);
-  refreshMissionTarget(state, landmarks);
-  state.missionFlash = 3;
-  state.message = `${MISSIONS[i].name}: ${MISSIONS[i].brief}`;
-  state.messageTimer = 5;
-}
-
-export function completeMission(state, landmarks, addWanted, winGame) {
+// A one-line summary of where the player is in the current mission,
+// for the HUD's mission panel.
+export function missionSummary(state) {
   const m = MISSIONS[state.missionIndex];
-  state.money += m.reward;
-  state.earnedTotal += m.reward;
-  state.respect += 20;
-  state.missionsDone += 1;
-  state.message = `Mission complete! +$${m.reward} — ${m.name}`;
-  state.messageTimer = 4;
-  state.missionFlash = 3;
-  if (state.missionIndex === MISSIONS.length - 1) { winGame(); return; }
-  startMission(state, state.missionIndex + 1, landmarks, addWanted);
+  if (!m) return { name: 'Free Roam', objective: 'The city is yours.', progress: 1 };
+  const total = m.stages.length;
+  const done = state.missionStage;
+  return {
+    name: m.name,
+    objective: state.missionTarget ? state.missionTarget.label : m.briefing,
+    progress: total ? done / total : 0,
+    timer: state.missionTimer,
+    pay: m.pay,
+  };
+}
+
+// The current stage definition, or null when the chain is finished.
+export function currentStage(state) {
+  const m = MISSIONS[state.missionIndex];
+  if (!m) return null;
+  return m.stages[state.missionStage] || null;
 }

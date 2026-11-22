@@ -1,180 +1,198 @@
-// Vice Coast round-7 dev server (Node 22, standard library only).
-// Serves the game and its staged screenshots side by side so a shot can
-// be viewed next to the game without a second server:
-//
-//   node serve.ts [--port 8080] [--host 127.0.0.1]
-//
-//   /                 the game (game/index.html)
-//   /shots/1-chase.jpg   a staged screenshot (screenshots/ under /shots/)
-//   /shots            the shot manifest as JSON (name, query, wanted,
-//                     time of day, staging note, hero flag) for the
-//                     staging driver
-//
-// Every static file gets an ETag and no-store caching, HEAD works like
-// GET without a body, every request is logged with method, path and
-// status, and paths are refused when they climb out of their root.
+// Vice Coast's static server: serves game/ at /, the screenshots under
+// /shots/, a JSON /shots manifest, and a /health endpoint that reports
+// the game file count and total bytes. Standard library only, no
+// dependencies. Run: `node serve.ts [--port 8000] [--host 127.0.0.1]`.
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createHash } from 'node:crypto';
-import { createReadStream, readFileSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { readFile, readdir, stat } from 'node:fs/promises';
+import { join, resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const gameRoot = resolve(here, 'game');
-const shotsRoot = resolve(here, 'screenshots');
-const manifestPath = resolve(here, 'shots.json');
+const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
+const gameDir = join(root, 'game');
+const shotsDir = join(root, 'screenshots');
+const manifestPath = join(root, 'shots.json');
 
-function flagValue(args, name, fallback) {
-  const at = args.indexOf(name);
-  if (at === -1 || at + 1 >= args.length) return fallback;
-  return args[at + 1];
-}
-
-const args = process.argv.slice(2);
-const host = flagValue(args, '--host', '127.0.0.1');
-const portRaw = Number(flagValue(args, '--port', '8080'));
-const port = Number.isInteger(portRaw) && portRaw > 0 && portRaw < 65536 ? portRaw : 8080;
-
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
+  '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json',
-  '.bin': 'application/octet-stream',
-  '.wasm': 'application/wasm',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.txt': 'text/plain; charset=utf-8',
 };
 
-function etagFor(size, mtimeMs) {
-  return `"${createHash('sha1').update(`${size}-${Math.floor(mtimeMs)}`).digest('hex')}"`;
+const args = process.argv.slice(2);
+let port = 8000;
+let host = '127.0.0.1';
+for (let i = 0; i < args.length; i += 1) {
+  if (args[i] === '--port' && args[i + 1]) port = Number(args[i + 1]);
+  if (args[i] === '--host' && args[i + 1]) host = args[i + 1];
 }
 
-function inside(root, file) {
-  return file === root || file.startsWith(root + sep);
+function etag(bytes: Buffer): string {
+  return `"${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}"`;
 }
 
-function log(request, status, ms) {
-  const started = new Date().toISOString();
-  console.log(`${started} ${request.method} ${request.url} -> ${status} (${ms}ms)`);
+function log(req: IncomingMessage, status: number, bytes: number): void {
+  const stamp = new Date().toISOString();
+  console.log(`${stamp} ${req.method} ${req.url} ${status} ${bytes}b`);
 }
 
-function sendFile(request, response, file, started) {
-  let stats;
+// Resolve a request path under a base directory, refusing anything that
+// climbs out of it (a path-traversal guard).
+function safeJoin(base: string, rel: string): string | null {
+  const cleaned = rel.split('/').filter((s) => s !== '' && s !== '.').join(sep);
+  const full = resolve(join(base, cleaned));
+  if (full !== base && !full.startsWith(base + sep)) return null;
+  return full;
+}
+
+async function sendFile(res: ServerResponse, filePath: string, req: IncomingMessage): Promise<void> {
+  let bytes: Buffer;
   try {
-    stats = statSync(file);
-    if (!stats.isFile()) throw new Error('not a file');
+    bytes = await readFile(filePath);
   } catch {
-    response.writeHead(404).end('not found');
-    log(request, 404, Date.now() - started);
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    res.end('not found');
+    log(req, 404, 9);
     return;
   }
-  const tag = etagFor(stats.size, stats.mtimeMs);
-  if (request.headers['if-none-match'] === tag) {
-    response.writeHead(304, { etag: tag, 'cache-control': 'no-store' }).end();
-    log(request, 304, Date.now() - started);
-    return;
-  }
-  const headers = {
-    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': stats.size,
-    'cache-control': 'no-store',
+  const tag = etag(bytes);
+  const headers: Record<string, string> = {
+    'content-type': MIME[extname(filePath).toLowerCase()] || 'application/octet-stream',
+    'content-length': String(bytes.length),
     etag: tag,
-  };
-  if (request.method === 'HEAD') {
-    response.writeHead(200, headers).end();
-    log(request, 200, Date.now() - started);
-    return;
-  }
-  response.writeHead(200, headers);
-  createReadStream(file).pipe(response);
-  response.on('finish', () => log(request, 200, Date.now() - started));
-}
-
-function sendManifest(request, response, started) {
-  let body;
-  try {
-    const raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    const shots = Array.isArray(raw) ? raw : raw.shots || [];
-    body = JSON.stringify({
-      seed: raw.seed ?? null,
-      shots: shots.map((s) => ({
-        name: s.name,
-        query: s.query,
-        shot: s.shot ?? String(s.name || '').replace(/^\d+-/, '').replace(/\.(jpg|jpeg|png)$/i, ''),
-        wanted: s.wanted ?? null,
-        timeOfDay: s.timeOfDay ?? null,
-        staging: s.staging ?? null,
-        hero: !!s.hero,
-      })),
-    });
-  } catch {
-    response.writeHead(500).end('manifest unreadable');
-    log(request, 500, Date.now() - started);
-    return;
-  }
-  const headers = {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
     'cache-control': 'no-store',
-    etag: etagFor(body.length, Date.now()),
   };
-  if (request.method === 'HEAD') {
-    response.writeHead(200, headers).end();
-    log(request, 200, Date.now() - started);
+  if (req.headers['if-none-match'] === tag) {
+    res.writeHead(304, headers);
+    res.end();
+    log(req, 304, 0);
     return;
   }
-  response.writeHead(200, headers).end(body);
-  log(request, 200, Date.now() - started);
+  if (req.method === 'HEAD') {
+    res.writeHead(200, headers);
+    res.end();
+    log(req, 200, 0);
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(bytes);
+  log(req, 200, bytes.length);
 }
 
-createServer((request, response) => {
-  const started = Date.now();
-  const url = new URL(request.url ?? '/', 'http://localhost');
-  let pathname;
+async function sendJson(res: ServerResponse, value: unknown, req: IncomingMessage): Promise<void> {
+  const bytes = Buffer.from(JSON.stringify(value), 'utf8');
+  const tag = etag(bytes);
+  const headers: Record<string, string> = {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': String(bytes.length),
+    etag: tag,
+    'cache-control': 'no-store',
+  };
+  if (req.method === 'HEAD') {
+    res.writeHead(200, headers);
+    res.end();
+    log(req, 200, 0);
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(bytes);
+  log(req, 200, bytes.length);
+}
+
+// The /health endpoint: the game file count and total bytes, the shot
+// count, and whether the manifest parses — a quick liveness check for
+// the playtest harness and for anyone serving the game.
+async function health(): Promise<Record<string, unknown>> {
+  let gameFiles = 0;
+  let gameBytes = 0;
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile()) {
+        gameFiles += 1;
+        gameBytes += (await stat(full)).size;
+      }
+    }
+  }
   try {
-    pathname = decodeURIComponent(url.pathname);
+    await walk(gameDir);
   } catch {
-    response.writeHead(400).end('bad request');
-    log(request, 400, Date.now() - started);
-    return;
+    // A missing game/ is reported, not hidden.
   }
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    response.writeHead(405).end('method not allowed');
-    log(request, 405, Date.now() - started);
-    return;
+  let shots = 0;
+  try {
+    shots = (await readdir(shotsDir)).filter((n) => n.endsWith('.jpg') || n.endsWith('.png')).length;
+  } catch {
+    shots = 0;
   }
-  // The manifest endpoint: /shots with no trailing file.
-  if (pathname === '/shots' || pathname === '/shots/') {
-    sendManifest(request, response, started);
-    return;
+  let manifestOk = false;
+  try {
+    JSON.parse(await readFile(manifestPath, 'utf8'));
+    manifestOk = true;
+  } catch {
+    manifestOk = false;
   }
-  // Screenshots live under /shots/<file>; everything else is the game.
-  const root = pathname.startsWith('/shots/') ? shotsRoot : gameRoot;
-  const rel = pathname.startsWith('/shots/') ? pathname.slice('/shots/'.length) : pathname;
-  const target = rel.endsWith('/') || rel === '' ? 'index.html' : rel;
-  const file = resolve(join(root, normalize(target)));
-  if (!inside(root, file)) {
-    response.writeHead(403).end('forbidden');
-    log(request, 403, Date.now() - started);
-    return;
+  return { ok: gameFiles > 0 && manifestOk, gameFiles, gameBytes, shots, manifestOk };
+}
+
+const server = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const path = decodeURIComponent(url.pathname);
+    if (path === '/health') {
+      await sendJson(res, await health(), req);
+      return;
+    }
+    if (path === '/shots') {
+      // The manifest, optionally filtered by time of day:
+      // /shots?timeOfDay=sunset returns only the sunset shots.
+      const raw = await readFile(manifestPath, 'utf8');
+      const manifest = JSON.parse(raw) as { shots?: Array<{ timeOfDay?: string }> };
+      const wanted = url.searchParams.get('timeOfDay');
+      if (wanted && Array.isArray(manifest.shots)) {
+        await sendJson(res, { ...manifest, shots: manifest.shots.filter((s) => s.timeOfDay === wanted) }, req);
+      } else {
+        await sendJson(res, manifest, req);
+      }
+      return;
+    }
+    if (path.startsWith('/shots/')) {
+      const file = safeJoin(shotsDir, path.slice('/shots/'.length));
+      if (!file) {
+        res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+        res.end('bad path');
+        log(req, 400, 8);
+        return;
+      }
+      await sendFile(res, file, req);
+      return;
+    }
+    const rel = path === '/' ? 'index.html' : path.slice(1);
+    const file = safeJoin(gameDir, rel);
+    if (!file) {
+      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('bad path');
+      log(req, 400, 8);
+      return;
+    }
+    await sendFile(res, file, req);
+  } catch (err) {
+    res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    res.end('server error');
+    log(req, 500, 12);
+    console.error(err);
   }
-  sendFile(request, response, file, started);
-}).listen(port, host, () => {
-  console.log(`Vice Coast round 7 — game/ on http://${host}:${port}/`);
-  console.log(`staged shots: http://${host}:${port}/shots/ (manifest at /shots)`);
-  console.log(`play a shot: http://${host}:${port}/?shot=chase&seed=23 (hero first)`);
+});
+
+server.listen(port, host, () => {
+  console.log(`Vice Coast serving game/ on http://${host}:${port}/ — /shots manifest, /shots/*.jpg, /health live`);
 });

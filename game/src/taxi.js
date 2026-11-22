@@ -1,117 +1,115 @@
-// Taxi fares for the v6 rebuild: a side activity on top of the story.
-// A random pedestrian waves for a cab; pick them up in a car, drive them
-// to one of nine road intersections across the big city within 150 seconds,
-// and get paid $40–$80 plus respect. Retimed for the 11400x6600 map: the
-// pickup wait is 30 seconds and the delivery clock is 150. Pure rules —
-// the renderer marks the waiting fare and the destination.
-import { pick } from './random.js';
+// Taxi fares: the side hustle that runs on its own. After a cooldown a
+// pedestrian near the player raises a hand; drive up in a car and the
+// fare starts; reach the destination and get paid. The fare grows with
+// the distance, and the passenger tips for a fast, smooth ride.
+import { makeRng } from './random.js';
+import { CFG, LANDMARKS } from './config.js';
 
-const DESTINATIONS = [
-  { x: 1050, y: 800, label: 'Northwest corner' },
-  { x: 10350, y: 800, label: 'Northeast corner' },
-  { x: 1050, y: 5800, label: 'Southwest corner' },
-  { x: 10350, y: 5800, label: 'Southeast corner' },
-  { x: 4350, y: 2300, label: 'Palm Row' },
-  { x: 7100, y: 3800, label: 'Midtown' },
-  { x: 3600, y: 4800, label: 'Arcade district' },
-  { x: 8300, y: 1300, label: 'Neon Hotel' },
-  { x: 2400, y: 2300, label: 'Palm Row west' },
+const FARE_SPOTS = [
+  { x: 9000, y: 1200, name: 'Neon Hotel' },
+  { x: 9800, y: 5400, name: 'Coral Docks' },
+  { x: 5200, y: 1800, name: 'Pixel Arcade' },
+  { x: 4200, y: 4800, name: 'Hideout' },
+  { x: 320, y: 3300, name: 'Sunset Pier' },
+  { x: 8600, y: 2600, name: 'Coral Bank' },
+  { x: 2200, y: 900, name: 'Palm Row' },
+  { x: 6600, y: 4200, name: 'Coral Market' },
 ];
-const PAYS = [40, 50, 60, 80];
-const PICKUP_DIST = 110;
-const DELIVERY_DIST = 140;
-const FARE_TIME = 150;
-const WAIT_TIME = 30;
 
-function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
-
-export function createTaxi(random) {
-  const rnd = random || Math.random;
-  function reset(state) {
-    state.taxi = { waiting: null, active: null, cooldown: 12, waitTimer: 0 };
-  }
-  function update(dt, state) {
-    const taxi = state.taxi;
-    if (!taxi) return;
-    if (taxi.cooldown > 0) taxi.cooldown -= dt;
-    const player = state.player;
-    if (taxi.waiting) {
-      const ped = taxi.waiting;
-      taxi.waitTimer -= dt;
-      if (!ped.alive || taxi.waitTimer <= 0) {
-        ped.fare = false;
-        taxi.waiting = null;
-        taxi.cooldown = 10;
-        if (ped.alive) { state.message = 'The fare got tired of waiting.'; state.messageTimer = 3; }
-        else { state.message = 'Your fare got run over. Ouch.'; state.messageTimer = 3; }
-        return;
-      }
-      if (player.inCar) {
-        const car = state.cars.find((c) => c.id === player.carId);
-        if (car && dist(car.x, car.y, ped.x, ped.y) < PICKUP_DIST) {
-          const idx = state.peds.indexOf(ped);
-          if (idx >= 0) state.peds.splice(idx, 1);
-          ped.fare = false;
-          const dest = pick(rnd, DESTINATIONS);
-          taxi.active = { dest, timer: FARE_TIME, pay: pick(rnd, PAYS) };
-          taxi.waiting = null;
-          state.message = `Fare picked up! Deliver to ${dest.label} — $${taxi.active.pay} in ${FARE_TIME}s.`;
-          state.messageTimer = 3;
+export function createTaxi() {
+  const rng = makeRng(99);
+  const taxi = {
+    waiting: null,
+    active: null,
+    cooldown: 25,
+    totalFares: 0,
+    totalEarned: 0,
+    // Pick a destination far from where the fare starts.
+    pickDestination(fromX, fromY) {
+      let best = FARE_SPOTS[0];
+      let bestD = -1;
+      for (const s of FARE_SPOTS) {
+        const d = Math.hypot(s.x - fromX, s.y - fromY);
+        if (d > bestD) {
+          bestD = d;
+          best = s;
         }
       }
-      return;
-    }
-
-    if (taxi.active) {
-      const fare = taxi.active;
-      fare.timer -= dt;
-      if (fare.timer <= 0) {
-        taxi.active = null;
-        taxi.cooldown = 15;
-        state.message = 'Too slow — the fare got out and walked away.';
-        state.messageTimer = 3;
-        return;
-      }
-      if (player.inCar) {
-        const car = state.cars.find((c) => c.id === player.carId);
-        if (car && dist(car.x, car.y, fare.dest.x, fare.dest.y) < DELIVERY_DIST) {
-          state.money += fare.pay;
-          state.earnedTotal += fare.pay;
-          state.respect += 2;
-          state.message = `Fare delivered! +$${fare.pay} • Respect +2`;
-          state.messageTimer = 3;
-          taxi.active = null;
-          taxi.cooldown = 20;
-        }
-      }
-      return;
-    }
-
-    if (taxi.cooldown > 0) return;
-    const living = state.peds.filter((p) => p.alive && !p.fare);
-    if (living.length === 0) return;
-    const ped = pick(rnd, living);
-    ped.fare = true;
-    taxi.waiting = ped;
-    taxi.waitTimer = WAIT_TIME;
-    state.message = 'A customer is waving for a taxi!';
-    state.messageTimer = 3;
-  }
-  // Round 7: a one-line summary of the fare state for the HUD and the
-  // playtest — waiting, active with its destination and timer, or idle.
-  function fareSummary(state) {
-    const taxi = state.taxi;
-    if (!taxi) return { status: 'idle' };
-    if (taxi.waiting) return { status: 'waiting', waitTimer: Math.ceil(taxi.waitTimer) };
-    if (taxi.active) {
-      return {
-        status: 'active',
-        dest: taxi.active.dest.label,
-        timer: Math.ceil(taxi.active.timer),
-        pay: taxi.active.pay,
+      return { x: best.x, y: best.y, name: best.name, dist: bestD };
+    },
+    // Called every frame from the world step while the player is driving.
+    update(state, dt) {
+      if (taxi.active) return;
+      if (taxi.waiting) return;
+      taxi.cooldown -= dt;
+      if (taxi.cooldown > 0) return;
+      // The waiting passenger stands on the roadside ahead of where the
+      // player is; the fare itself only starts once they are in a car.
+      const px0 = state.player.x;
+      const py0 = state.player.y;
+      const pa = state.player.angle;
+      // The waiting passenger stands on the roadside ahead of the player.
+      const ahead = 260 + rng.range(0, 200);
+      const px = px0 + Math.cos(pa) * ahead + rng.range(-40, 40);
+      const py = py0 + Math.sin(pa) * ahead + rng.range(-40, 40);
+      taxi.waiting = {
+        x: Math.max(700, Math.min(CFG.WORLD_W - 100, px)),
+        y: Math.max(300, Math.min(CFG.WORLD_H - 100, py)),
+        // The passenger waves; the HUD points at them.
+        waving: true,
       };
-    }
-    return { status: 'idle', cooldown: Math.ceil(taxi.cooldown) };
-  }
-  return { reset, update, fareSummary };
+    },
+    // The player drove up to the waiting passenger: the fare starts.
+    tryPickup(state) {
+      if (!taxi.waiting || taxi.active) return false;
+      const car = state.cars.find((c) => c.id === state.player.carId);
+      if (!car) return false;
+      const d = Math.hypot(car.x - taxi.waiting.x, car.y - taxi.waiting.y);
+      if (d > 130) return false;
+      const dest = taxi.pickDestination(taxi.waiting.x, taxi.waiting.y);
+      taxi.active = {
+        from: { x: taxi.waiting.x, y: taxi.waiting.y },
+        dest,
+        // The meter: a base fare plus distance, in dollars.
+        fare: Math.round(35 + dest.dist / 120),
+        timer: 240,
+      };
+      taxi.waiting = null;
+      return true;
+    },
+    // Drive the active fare: timer ticks, arrival pays out.
+    updateActive(state, dt) {
+      if (!taxi.active) return null;
+      taxi.active.timer -= dt;
+      const car = state.cars.find((c) => c.id === state.player.carId);
+      if (!car) return null;
+      const d = Math.hypot(car.x - taxi.active.dest.x, car.y - taxi.active.dest.y);
+      if (d < 130) {
+        const paid = taxi.active.fare;
+        taxi.totalFares += 1;
+        taxi.totalEarned += paid;
+        taxi.active = null;
+        taxi.cooldown = 55 + rng.range(0, 25);
+        return { paid, kind: 'fare' };
+      }
+      if (taxi.active.timer <= 0) {
+        taxi.active = null;
+        taxi.cooldown = 40;
+        return { paid: 0, kind: 'timeout' };
+      }
+      return null;
+    },
+    // Cancel a waiting or active fare (the player left the car, for one).
+    cancel() {
+      taxi.waiting = null;
+      taxi.active = null;
+      taxi.cooldown = 45;
+    },
+  };
+  return taxi;
+}
+
+// Landmark lookup for fare destinations, shared with the phone jobs.
+export function landmarkByName(name) {
+  return LANDMARKS[name] || null;
 }

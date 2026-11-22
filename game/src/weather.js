@@ -1,92 +1,73 @@
-// Day/night + weather for the 3D rebuild. The clock runs a 240 s day and
-// the 3D layer reads phase, sun height and sky colours to light the scene.
-// Rain comes in bursts and makes the roads slick. Pure rules — no drawing.
-import { DAY_LENGTH, DAY_PHASES, SUN_DIRECTION } from './config.js';
+// The day cycle and the rain for Vice Coast. A full day is 240 seconds of
+// play: day for the first 120, sunset from 120 to 170, night from 170 to
+// 240, then a new morning. The sun's direction follows the phase, low and
+// orange at sunset, high at midday, gone at night.
+import { CFG } from './config.js';
 
-function phaseFor(t) {
-  const c = ((t % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
-  for (const p of DAY_PHASES) if (c >= p.from && c < p.to) return p.name;
-  return 'day';
-}
-
-// Round 7: the shadow rig asks the weather where the sun is. The
-// direction is low and from the west at sunset (long shadows to the
-// east), high at midday, and dim from the north at night.
-export function sunVector(t) {
-  const phase = phaseFor(t);
-  const dir = SUN_DIRECTION[phase] || SUN_DIRECTION.day;
-  const len = Math.hypot(dir.x, dir.y, dir.z) || 1;
-  return { x: dir.x / len, y: dir.y / len, z: dir.z / len, phase };
-}
-
-// Golden hour is the last stretch of sunset before night — the light
-// the hero screenshot is staged in.
-export function isGoldenHour(t) {
-  const c = ((t % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
-  return c >= 150 && c < 170;
-}
-
-export function phaseBlend(t) {
-  const c = ((t % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
-  for (const p of DAY_PHASES) {
-    if (c >= p.from && c < p.to) return (c - p.from) / (p.to - p.from);
-  }
-  return 0;
-}
-
-export function sunHeight(t) {
-  const c = ((t % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH;
-  if (c < 120) return 0.35 + 0.65 * Math.sin((c / 120) * Math.PI);
-  if (c < 170) return Math.max(0, 0.35 * (1 - (c - 120) / 50));
-  return -0.25;
-}
-
-export const SKY = {
-  day: { top: '#3f8fd2', horizon: '#bfe3f2', sun: '#fff3c4', fog: '#bcd8e8' },
-  sunset: { top: '#5a2d7a', horizon: '#ff7a3c', sun: '#ffcf5e', fog: '#e88a5a' },
-  night: { top: '#0a0d24', horizon: '#27355e', sun: '#c8d4f0', fog: '#141a33' },
+// Where in the cycle each named phase sits, in seconds.
+const PHASES = {
+  day: { start: 0, end: CFG.DAY_END },
+  sunset: { start: CFG.DAY_END, end: CFG.SUNSET_END },
+  night: { start: CFG.SUNSET_END, end: CFG.DAY_LENGTH },
 };
 
-export function clockFor(t) {
-  const hours = (8 + (((t % DAY_LENGTH) + DAY_LENGTH) % DAY_LENGTH) / DAY_LENGTH * 24) % 24;
-  const h = Math.floor(hours);
-  const m = Math.floor((hours - h) * 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
-export function createWeather(random) {
-  const rnd = random || Math.random;
-  const data = { t: 0, phase: 'day', raining: false, rainTimer: 0, nextRainIn: 25 + rnd() * 30 };
-  function update(dt) {
-    data.t += dt;
-    const p = phaseFor(data.t);
-    if (p !== data.phase) data.phase = p;
-    if (data.raining) {
-      data.rainTimer -= dt;
-      if (data.rainTimer <= 0) { data.raining = false; data.nextRainIn = 20 + rnd() * 40; }
-    } else {
-      data.nextRainIn -= dt;
-      if (data.nextRainIn <= 0) { data.raining = true; data.rainTimer = 15 + rnd() * 15; }
-    }
-  }
-  function force(phase, raining) {
-    const p = DAY_PHASES.find((x) => x.name === phase) || DAY_PHASES[0];
-    data.t = p.from + 1;
-    data.phase = phase;
-    data.raining = !!raining;
-    data.rainTimer = raining ? 60 : 0;
-    data.nextRainIn = raining ? 60 : 60;
-  }
-  function setRain(on) {
-    data.raining = !!on;
-    if (on) data.rainTimer = 60; else data.nextRainIn = 60;
-  }
-  function reset() {
-    data.t = 0; data.phase = 'day'; data.raining = false; data.rainTimer = 0;
-    data.nextRainIn = 25 + rnd() * 30;
-  }
-  function debug() {
-    return { phase: data.phase, raining: data.raining, t: Math.round(data.t * 10) / 10, sun: Math.round(sunHeight(data.t) * 100) / 100 };
-  }
-  return { data, update, force, setRain, reset, debug, advance: update };
+export function createWeather() {
+  const w = {
+    // Seconds into the current day. Starts in the morning.
+    t: 30,
+    raining: false,
+    // The phase name: 'day', 'sunset' or 'night'.
+    phase() {
+      if (w.t < CFG.DAY_END) return 'day';
+      if (w.t < CFG.SUNSET_END) return 'sunset';
+      return 'night';
+    },
+    // Jump the clock to the middle of a named phase (used by screenshots).
+    setPhase(name) {
+      const p = PHASES[name];
+      if (p) w.t = (p.start + p.end) / 2;
+    },
+    // Move the clock forward, wrapping to a new morning.
+    advance(seconds) {
+      w.t = (w.t + seconds) % CFG.DAY_LENGTH;
+    },
+    // Rain on or off. Rain is rare and short: it clears by itself.
+    setRain(on) {
+      w.raining = !!on;
+    },
+    // The sun's direction as a unit-ish vector, for light and shadows.
+    // The world is Z-up: x is east-west, y is north-south, z is vertical.
+    // Low in the west at sunset, high at midday, below the horizon at night.
+    sunDirection() {
+      const p = w.phase();
+      if (p === 'day') {
+        const f = w.t / CFG.DAY_END;
+        return { x: -0.55 + f * 0.35, y: 0.35, z: 0.85 - f * 0.25 };
+      }
+      if (p === 'sunset') {
+        const f = (w.t - CFG.DAY_END) / (CFG.SUNSET_END - CFG.DAY_END);
+        return { x: -0.95, y: 0.12, z: 0.28 - f * 0.16 };
+      }
+      return { x: -0.3, y: 0.4, z: -0.2 };
+    },
+    // How bright the sun is right now, 0 to 1.
+    sunStrength() {
+      const p = w.phase();
+      if (p === 'day') return 1;
+      if (p === 'sunset') return 0.55;
+      return 0.12;
+    },
+    // Sky colours for the current phase, as CSS strings for the HUD sky.
+    skyColors() {
+      const p = w.phase();
+      if (p === 'day') return { top: '#7fb2dd', mid: '#bcd8ec', low: '#e8d9b0' };
+      if (p === 'sunset') return { top: '#5a3d8a', mid: '#e85d75', low: '#ff9a5c' };
+      return { top: '#070d24', mid: '#16224d', low: '#2a2f5e' };
+    },
+    // A small debug snapshot for the playtest harness.
+    debug() {
+      return { phase: w.phase(), t: Math.round(w.t * 10) / 10, raining: w.raining };
+    },
+  };
+  return w;
 }

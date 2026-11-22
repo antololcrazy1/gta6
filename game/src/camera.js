@@ -1,205 +1,176 @@
-// Chase-camera collision for Vice Coast round 7.
-//
-// The chase camera sits on a boom behind the player. When the player drives
-// tight against a building, the boom's ideal spot can end up inside the
-// wall, so the camera would clip through brick. This module keeps the
-// camera out of every building: it sweeps the boom segment from the
-// player's head toward the ideal camera spot, finds the first building
-// wall the segment would cross, and shortens the boom to just short of
-// that wall. The boom eases back out when the way clears, so the camera
-// never snaps. Buildings are axis-aligned boxes, so the sweep is a
-// slab test against each box — cheap enough to run every frame.
-//
-// The module knows nothing about Three.js or the game loop: it works in
-// plain world coordinates (x, y on the ground plane, z up) and the
-// renderer turns its output into a camera position.
-export const CAMERA_TUNING = {
-  // How far in front of a wall the camera stops, in world units.
-  wallClearance: 26,
-  // The boom shortens no faster than this (units per second) and grows
-  // back no faster than this — the asymmetry keeps pull-ins snappy and
-  // pull-outs gentle, so the frame never jumps.
-  pullInRate: 900,
-  pullOutRate: 260,
-  // The shortest boom allowed: just behind the car's rear bumper (the
-  // car is 96 long, so 50 keeps the camera out of the car itself) and
-  // short enough that a car parked at its 48-unit collision distance
-  // from a wall still leaves the camera outside the wall.
-  minBoom: 50,
-  // How far above the ground the boom's eye sits when it sweeps.
-  eyeHeight: 110,
-};
+// The chase camera for Vice Coast. Third-person, low and close, the car
+// large in the lower centre of the frame, the field of view widening
+// slightly with speed, a little lag and sway on turns. The boom sweeps
+// against building walls so the camera never sits inside one — and the
+// round-8 roof-lift fix: when the boom is blocked on all sides, the camera
+// slides sideways along the street and lowers, instead of lifting over the
+// roof. The low chase feel survives even in a tight alley.
+import { CFG } from './config.js';
 
-// A segment from (ax, ay) to (bx, by) against one axis-aligned box.
-// Returns the fraction t along the segment where it first enters the
-// box, or null when the segment never touches it. The box is given by
-// its ground-plane footprint plus its height; the sweep is 2D because
-// the camera eye flies above the street and only walls block it, and a
-// wall blocks the whole height of the box.
-function segmentBoxT(ax, ay, bx, by, box) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  let tEnter = 0;
-  let tExit = 1;
-  // X slab.
-  if (dx === 0) {
-    if (ax < box.x || ax > box.x + box.w) return null;
-  } else {
-    let t0 = (box.x - ax) / dx;
-    let t1 = (box.x + box.w - ax) / dx;
-    if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
-    if (t0 > tEnter) tEnter = t0;
-    if (t1 < tExit) tExit = t1;
-    if (tEnter > tExit) return null;
-  }
-  // Y slab.
-  if (dy === 0) {
-    if (ay < box.y || ay > box.y + box.h) return null;
-  } else {
-    let t0 = (box.y - ay) / dy;
-    let t1 = (box.y + box.h - ay) / dy;
-    if (t0 > t1) { const tmp = t0; t0 = t1; t1 = tmp; }
-    if (t0 > tEnter) tEnter = t0;
-    if (t1 < tExit) tExit = t1;
-    if (tEnter > tExit) return null;
-  }
-  if (tEnter < 0 || tEnter > 1) return null;
-  return tEnter;
-}
-
-// The fraction of the boom that stays clear of every building: 1 means
-// the full boom is free, 0 means a wall is right at the player's head.
-// Only buildings tall enough to reach the eye height can block the view;
-// low sheds and gas canopies let the camera fly over them.
-export function clearBoomFraction(fromX, fromY, toX, toY, eyeHeight, buildings) {
-  let best = 1;
+// True when a point is inside a building's footprint (with a margin).
+function insideBuilding(buildings, x, y, margin) {
   for (const b of buildings) {
-    if (b.ht < eyeHeight * 0.55) continue;
-    // Skip boxes far from the segment's bounding box — a cheap reject
-    // that keeps the sweep fast across a 405-building city.
-    const minX = fromX < toX ? fromX : toX;
-    const maxX = fromX > toX ? fromX : toX;
-    const minY = fromY < toY ? fromY : toY;
-    const maxY = fromY > toY ? fromY : toY;
-    if (b.x > maxX || b.x + b.w < minX || b.y > maxY || b.y + b.h < minY) continue;
-    const t = segmentBoxT(fromX, fromY, toX, toY, b);
-    if (t !== null && t < best) best = t;
-  }
-  return best;
-}
-
-// Is a ground-plane point inside any building footprint? Used by the
-// playtest to prove the camera never sits inside a wall.
-export function pointInsideBuilding(x, y, buildings) {
-  for (const b of buildings) {
-    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
-  }
-  return null;
-}
-
-// The 3D version: the camera is only "inside" a building when it sits
-// below the roof. A camera flying above a low roof is not inside it,
-// however the footprint reads from above.
-export function cameraInside3D(x, y, height, buildings) {
-  for (const b of buildings) {
-    if (height >= b.ht) continue;
-    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
-  }
-  return null;
-}
-
-// The chase camera's boom state. One instance lives in the renderer and
-// is ticked every frame with the player's position and heading.
-export function createChaseCamera(tuning) {
-  const t = { ...CAMERA_TUNING, ...(tuning || {}) };
-  let boom = 260; // current boom length, eased toward the allowed one
-  let lastClear = 1;
-  let side = 0; // current lateral slide, eased toward its target
-  let lastSideTarget = 0;
-  let lift = 0; // extra camera height, eased toward its target
-  let lastLiftTarget = 0;
-
-  function update(dt, playerX, playerY, heading, wantBoom, eyeHeight, buildings) {
-    const fx = Math.cos(heading);
-    const fy = Math.sin(heading);
-    const wantX = playerX - fx * wantBoom;
-    const wantY = playerY - fy * wantBoom;
-    const clear = clearBoomFraction(playerX, playerY, wantX, wantY, eyeHeight, buildings);
-    lastClear = clear;
-    // Leave a clearance gap in front of the wall, then convert the
-    // fraction into a boom length.
-    const wallGap = t.wallClearance / Math.max(1, wantBoom);
-    const allowed = Math.max(t.minBoom, wantBoom * Math.max(0, clear - wallGap));
-    // Ease: pull in fast when a wall appears, drift back out slowly.
-    // When the wall is right there (the allowed boom is under half the
-    // current one) snap straight to it — a one-frame cut beats a camera
-    // sitting inside a wall while the boom catches up.
-    if (allowed < boom * 0.5) {
-      boom = allowed;
-    } else {
-      const rate = allowed < boom ? t.pullInRate : t.pullOutRate;
-      const step = rate * dt;
-      if (boom < allowed) boom = Math.min(allowed, boom + step);
-      else if (boom > allowed) boom = Math.max(allowed, boom - step);
+    if (x > b.x - margin && x < b.x + b.w + margin && y > b.y - margin && y < b.y + b.h + margin) {
+      return true;
     }
-    // The boom has a floor (it must stay behind the car's rear bumper),
-    // so when the car is closer to a wall than the floor allows, the
-    // camera can still end up inside the wall. Then slide it sideways:
-    // try lateral offsets until the camera sits outside every building
-    // with a clear line back to the player, and ease back to centre
-    // when the way is clear again.
-    let baseX = playerX - fx * boom;
-    let baseY = playerY - fy * boom;
-    let sideTarget = 0;
-    if (pointInsideBuilding(baseX, baseY, buildings)) {
-      const px = -fy;
-      const py = fx;
-      for (const off of [70, -70, 140, -140, 210, -210]) {
-        const cx = baseX + px * off;
-        const cy = baseY + py * off;
-        if (pointInsideBuilding(cx, cy, buildings)) continue;
-        if (clearBoomFraction(playerX, playerY, cx, cy, eyeHeight, buildings) < 0.8) continue;
-        sideTarget = off;
-        break;
+  }
+  return false;
+}
+
+// The longest clear boom from an anchor toward a direction: walk out from
+// the anchor in steps and stop at the first building wall.
+function clearBoom(buildings, ax, ay, dx, dy, maxBoom) {
+  const step = 12;
+  let boom = maxBoom;
+  for (let d = step; d <= maxBoom; d += step) {
+    const x = ax + dx * d;
+    const y = ay + dy * d;
+    if (insideBuilding(buildings, x, y, 6)) {
+      boom = Math.max(40, d - step);
+      return { boom, blocked: true };
+    }
+  }
+  return { boom, blocked: false };
+}
+
+export function createCamera(THREE) {
+  const cam = {
+    // The three.js camera this module drives.
+    threeCam: null,
+    // Current boom (distance behind the car) and height.
+    boom: 220,
+    height: 70,
+    blocked: false,
+    insideBuilding: false,
+    // Smoothed position and look target, for the lag and sway.
+    pos: { x: 0, y: 0, z: 80 },
+    look: { x: 0, y: 0, z: 20 },
+    fov: 62,
+    // Attach the real three.js camera.
+    attach(threeCam) {
+      cam.threeCam = threeCam;
+    },
+    // The camera's current world position, for the pedestrian keep-out.
+    getPos() {
+      return { x: cam.pos.x, y: cam.pos.y, z: cam.pos.z };
+    },
+    // One frame of camera work. state holds the player, the car and the
+    // buildings; mode is 'car', 'foot' or 'aim'.
+    update(state, dt, mode) {
+      const p = state.player;
+      const inCar = p.inCar && state.player.carId >= 0;
+      const car = inCar ? state.cars.find((c) => c.id === state.player.carId) : null;
+      const anchorX = inCar && car ? car.x : p.x;
+      const anchorY = inCar && car ? car.y : p.y;
+      const heading = inCar && car ? car.angle : p.angle;
+      const speed = inCar && car ? Math.abs(car.speed) : Math.abs(p.speed || 0);
+
+      // The boom and height for this mode.
+      let wantBoom = mode === 'car' || inCar ? 220 : 130;
+      let wantHeight = mode === 'car' || inCar ? 72 : 58;
+      if (mode === 'aim') {
+        wantBoom = 95;
+        wantHeight = 62;
       }
-    }
-    lastSideTarget = sideTarget;
-    const sideStep = 600 * dt;
-    if (side < sideTarget) side = Math.min(sideTarget, side + sideStep);
-    else if (side > sideTarget) side = Math.max(sideTarget, side - sideStep);
-    const px = -fy;
-    const py = fx;
-    const finalX = baseX + px * side;
-    const finalY = baseY + py * side;
-    // Last resort when no slide escapes: rise above the roof. The
-    // camera looks down at the player from over the building instead
-    // of sitting inside it — a high angle beats a wall in the lens.
-    // The lift eases like the rest, and falls back to zero in the open.
-    let liftTarget = 0;
-    const trapped = cameraInside3D(finalX, finalY, eyeHeight + lift, buildings);
-    if (trapped) liftTarget = Math.max(0, trapped.ht + 60 - eyeHeight);
-    lastLiftTarget = liftTarget;
-    const liftStep = 500 * dt;
-    if (lift < liftTarget) lift = Math.min(liftTarget, lift + liftStep);
-    else if (lift > liftTarget) lift = Math.max(liftTarget, lift - liftStep);
-    return {
-      x: finalX,
-      y: finalY,
-      boom,
-      clear,
-      blocked: clear < 0.999,
-      side,
-      lift,
-    };
-  }
+      // The camera sits behind the heading, on the opposite side.
+      let bx = -Math.cos(heading);
+      let by = -Math.sin(heading);
 
-  function reset() { boom = 260; lastClear = 1; side = 0; lastSideTarget = 0; lift = 0; lastLiftTarget = 0; }
+      // Collision: sweep the boom against the building walls.
+      const sweep = clearBoom(state.buildings, anchorX, anchorY, bx, by, wantBoom);
+      let boom = sweep.boom;
+      let blocked = sweep.blocked;
+      let lateral = 0;
 
-  return {
-    update,
-    reset,
-    get boom() { return boom; },
-    get lastClear() { return lastClear; },
-    debug() { return { boom: Math.round(boom), clear: Math.round(lastClear * 100) / 100, blocked: lastClear < 0.999, side: Math.round(side), lift: Math.round(lift) }; },
+      // Roof-lift fix: when the boom is badly blocked, do not lift the
+      // camera over the roof. Slide sideways along the street instead:
+      // try both lateral offsets and keep the one with the longest clear
+      // boom, then lower the camera toward the car.
+      if (blocked && boom < 90) {
+        const px = -by;
+        const py = bx;
+        let best = { boom, lateral: 0, blocked: true };
+        for (const side of [1, -1]) {
+          const off = 70 * side;
+          const ax = anchorX + px * off;
+          const ay = anchorY + py * off;
+          if (insideBuilding(state.buildings, ax, ay, 10)) continue;
+          const s2 = clearBoom(state.buildings, ax, ay, bx, by, wantBoom);
+          if (s2.boom > best.boom) best = { boom: s2.boom, lateral: off, blocked: s2.blocked };
+        }
+        if (best.lateral !== 0) {
+          lateral = best.lateral;
+          boom = best.boom;
+          blocked = best.blocked;
+        }
+        // Lower, never lift: the camera stays near the car's roofline.
+        wantHeight = Math.min(wantHeight, 58);
+      }
+
+      // Ease the boom and height toward their targets.
+      const ease = 1 - Math.pow(0.001, dt);
+      cam.boom += (boom - cam.boom) * ease;
+      cam.height += (wantHeight - cam.height) * ease;
+      cam.blocked = blocked;
+
+      // The desired camera position, with the lateral slide applied.
+      const px = -by;
+      const py = bx;
+      const tx = anchorX + bx * cam.boom + px * lateral;
+      const ty = anchorY + by * cam.boom + py * lateral;
+      const tz = cam.height;
+      // Lag and sway: the camera trails the car and swings a little on turns.
+      const lag = 1 - Math.pow(0.0001, dt);
+      cam.pos.x += (tx - cam.pos.x) * lag;
+      cam.pos.y += (ty - cam.pos.y) * lag;
+      cam.pos.z += (tz - cam.pos.z) * lag;
+      // Never let the smoothed position end up inside a building: if it
+      // did, pull it back toward the anchor until it is clear.
+      if (insideBuilding(state.buildings, cam.pos.x, cam.pos.y, 4)) {
+        cam.insideBuilding = true;
+        let pull = 0.85;
+        for (let i = 0; i < 8; i += 1) {
+          const cx = anchorX + (cam.pos.x - anchorX) * pull;
+          const cy = anchorY + (cam.pos.y - anchorY) * pull;
+          if (!insideBuilding(state.buildings, cx, cy, 4)) {
+            cam.pos.x = cx;
+            cam.pos.y = cy;
+            break;
+          }
+          pull *= 0.8;
+        }
+      } else {
+        cam.insideBuilding = false;
+      }
+      // Look ahead of the car, slightly above it.
+      const lookX = anchorX + Math.cos(heading) * 90;
+      const lookY = anchorY + Math.sin(heading) * 90;
+      cam.look.x += (lookX - cam.look.x) * lag;
+      cam.look.y += (lookY - cam.look.y) * lag;
+      cam.look.z += (26 - cam.look.z) * lag;
+
+      // The field of view widens slightly with speed.
+      const wantFov = 60 + Math.min(16, speed / CFG.CAR_TOP_SPEED * 16);
+      cam.fov += (wantFov - cam.fov) * ease;
+
+      if (cam.threeCam) {
+        cam.threeCam.position.set(cam.pos.x, cam.pos.y, cam.pos.z);
+        cam.threeCam.lookAt(cam.look.x, cam.look.y, cam.look.z);
+        if (Math.abs(cam.threeCam.fov - cam.fov) > 0.05) {
+          cam.threeCam.fov = cam.fov;
+          cam.threeCam.updateProjectionMatrix();
+        }
+      }
+    },
+    // A debug snapshot for the playtest harness.
+    debug() {
+      return {
+        boom: Math.round(cam.boom),
+        blocked: cam.blocked,
+        height: Math.round(cam.pos.z),
+        inside: cam.insideBuilding,
+      };
+    },
   };
+  return cam;
 }

@@ -1,151 +1,61 @@
-// Rival gang for the v6 rebuild: the Vipers hold three turf districts
-// across the big city. Gang cars (purple paint, gold trim) patrol their
-// turf and do drive-bys on the player while the heat is low; torching one
-// raises respect +5 and drops cash. Pure rules — the 3D layer draws the
-// turf tint, the markers and the cars from state.gangCars. The world passes
-// a ctx with the helpers it owns (burst, collide, onDriveby, onGangKill).
-import { pick, range } from './random.js';
+// The Viper gang and their turf in Neon Downtown. Gang cars cruise the
+// turf in a slow loop; torching one raises respect and counts toward the
+// Neon Reign mission. The turf marker is the hold point for mission 9.
+import { LANDMARKS } from './config.js';
 
-export const GANG_TURF = [
-  { x: 8300, y: 2400, r: 900, name: 'Neon Downtown' },
-  { x: 10100, y: 5600, r: 800, name: 'Coral Docks' },
-  { x: 4600, y: 5800, r: 800, name: 'Southside' },
-];
-const GANG_PAINTS = ['#7b2fbe', '#8e44ad', '#6c3483', '#9b59b6'];
-const GANG_HEALTH = 60;
-const DRIVEBY_RANGE = 520;
-const DRIVEBY_CD = 2.5;
+export const TURF = {
+  x: LANDMARKS.turf.x,
+  y: LANDMARKS.turf.y,
+  r: 900,
+  name: 'Viper Turf',
+};
 
-function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
-function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
-function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+// Gang car paint and names, for the HUD and the mission panel.
+const GANG_COLORS = [0x6a1a6a, 0x3a1a5a, 0x8a2a8a, 0x5a1a3a];
+const GANG_NAMES = ['Viper 1', 'Viper 2', 'Viper 3', 'Viper 4', 'Viper 5', 'Viper 6'];
 
-export function createGang(random) {
-  const rnd = random || Math.random;
-  let nextId = 500;
-  function reset(state) {
-    state.gangCars.length = 0;
-    state.gang = { kills: 0, respawn: 0 };
-    for (let i = 0; i < GANG_TURF.length; i += 1) spawnCar(state, i);
+// Six gang cars, patrolling a loop around the turf centre. Their routes
+// are circles of different radii so they spread across the neighbourhood
+// instead of bunching on one street.
+export function createGangCars(rng) {
+  const cars = [];
+  for (let i = 0; i < 6; i += 1) {
+    const radius = 180 + (i % 3) * 160;
+    const angle = (i / 6) * Math.PI * 2 + rng.range(-0.3, 0.3);
+    cars.push({
+      id: 1000 + i,
+      name: GANG_NAMES[i],
+      x: TURF.x + Math.cos(angle) * radius,
+      y: TURF.y + Math.sin(angle) * radius,
+      angle,
+      orbitRadius: radius,
+      orbitAngle: angle,
+      orbitSpeed: 0.12 + rng.range(0, 0.08),
+      speed: 0,
+      health: 100,
+      maxHealth: 100,
+      color: GANG_COLORS[i % GANG_COLORS.length],
+      alive: true,
+      // A wrecked car smokes for a while before it is towed.
+      wreckTimer: 0,
+    });
   }
-  function spawnCar(state, turfIdx) {
-    const turf = GANG_TURF[turfIdx];
-    const a = rnd() * Math.PI * 2;
-    const id = nextId;
-    nextId += 1;
-    const car = {
-      id,
-      x: clamp(turf.x + Math.cos(a) * turf.r * 0.5, 1050, 10800),
-      y: clamp(turf.y + Math.sin(a) * turf.r * 0.5, 400, 6200),
-      angle: rnd() * Math.PI * 2, speed: 0, health: GANG_HEALTH,
-      color: pick(rnd, GANG_PAINTS), gang: true, turf: turfIdx,
-      patrolX: turf.x, patrolY: turf.y, shootCd: range(rnd, 1, 2.5),
-      retarget: 0, fleeing: false,
-    };
-    state.gangCars.push(car);
-    return car;
-  }
-  function ensureTurfCars(state, turfIdx, n) {
-    let count = state.gangCars.filter((c) => c.turf === turfIdx).length;
-    while (count < n) { spawnCar(state, turfIdx); count += 1; }
-  }
-  function destroyCar(state, car, ctx) {
-    const idx = state.gangCars.indexOf(car);
-    if (idx < 0) return;
-    state.gangCars.splice(idx, 1);
-    const cash = 40 + Math.floor(rnd() * 40);
-    state.money += cash;
-    state.earnedTotal += cash;
-    state.respect += 5;
-    state.gang.kills += 1;
-    if (state.missionIndex === 8 && state.missionStage === 0) state.gangMissionKills += 1;
-    state.message = `Rival car torched! +$${cash} • Respect +5`;
-    state.messageTimer = 3;
-    if (ctx && ctx.burst) ctx.burst(car.x, car.y, '#ff5722', 22, 300);
-    if (ctx && ctx.onGangKill) ctx.onGangKill();
-  }
-  function update(dt, state, ctx) {
-    const player = state.player;
-    state.gang.respawn -= dt;
-    for (let i = 0; i < GANG_TURF.length; i += 1) {
-      if (!state.gangCars.some((c) => c.turf === i) && state.gang.respawn <= 0) {
-        spawnCar(state, i);
-        state.gang.respawn = 18;
-      }
-    }
-    const holding = state.missionIndex === 8 && state.missionStage === 1;
-    for (const car of state.gangCars) {
-      car.shootCd -= dt;
-      car.retarget -= dt;
-      const turf = GANG_TURF[car.turf];
-      const playerNearTurf = dist(player.x, player.y, turf.x, turf.y) < turf.r + 500;
-      let targetX = car.patrolX;
-      let targetY = car.patrolY;
-      let wantSpeed = 150;
-      if (holding) {
-        car.fleeing = true;
-        const away = angleTo(player.x, player.y, car.x, car.y);
-        targetX = car.x + Math.cos(away) * 400;
-        targetY = car.y + Math.sin(away) * 400;
-        wantSpeed = 320;
-      } else if (playerNearTurf && state.wanted <= 1) {
-        targetX = player.x;
-        targetY = player.y;
-        wantSpeed = 380;
-        const d = dist(car.x, car.y, player.x, player.y);
-        if (d < DRIVEBY_RANGE && car.shootCd <= 0) {
-          car.shootCd = DRIVEBY_CD;
-          const a = angleTo(car.x, car.y, player.x, player.y);
-          state.bullets.push({
-            x: car.x + Math.cos(a) * 50, y: car.y + Math.sin(a) * 50,
-            vx: Math.cos(a) * 820, vy: Math.sin(a) * 820, life: 0.9, gang: true,
-          });
-          if (ctx && ctx.onDriveby) ctx.onDriveby();
-        }
-      } else if (car.retarget <= 0 || dist(car.x, car.y, car.patrolX, car.patrolY) < 120) {
-        const a = rnd() * Math.PI * 2;
-        const r = rnd() * turf.r * 0.7;
-        car.patrolX = clamp(turf.x + Math.cos(a) * r, 1050, 10800);
-        car.patrolY = clamp(turf.y + Math.sin(a) * r, 400, 6200);
-        car.retarget = range(rnd, 4, 9);
-      }
-      const want = angleTo(car.x, car.y, targetX, targetY);
-      let diff = want - car.angle;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      car.angle += clamp(diff, -2.2 * dt, 2.2 * dt);
-      car.speed = clamp(car.speed + (wantSpeed - car.speed) * dt * 0.8, 0, wantSpeed);
-      const nx = car.x + Math.cos(car.angle) * car.speed * dt;
-      const ny = car.y + Math.sin(car.angle) * car.speed * dt;
-      if (ctx && ctx.collide && ctx.collide(nx, ny, 50).hit) { car.angle += 0.9; car.speed *= 0.6; }
-      else { car.x = clamp(nx, 900, 10900); car.y = clamp(ny, 300, 6300); }
-    }
-  }
-  function debug(state) {
-    return {
-      cars: state.gangCars.length,
-      kills: state.gang.kills,
-      turf: GANG_TURF.map((t, i) => ({ name: t.name, cars: state.gangCars.filter((c) => c.turf === i).length })),
-    };
-  }
-  // Round 7: which turf the player is standing in (or nearest to), and
-  // how many Viper cars hold each turf — the HUD and the playtest use
-  // this instead of recomputing the distances themselves.
-  function nearestTurf(x, y) {
-    let best = null;
-    let bd = Infinity;
-    for (const t of GANG_TURF) {
-      const d = dist(x, y, t.x, t.y) - t.r;
-      if (d < bd) { bd = d; best = t; }
-    }
-    return best ? { name: best.name, x: best.x, y: best.y, r: best.r, inside: bd <= 0 } : null;
-  }
-  function turfStatus(state) {
-    return GANG_TURF.map((t, i) => ({
-      name: t.name,
-      cars: state.gangCars.filter((c) => c.turf === i).length,
-      playerInside: dist(state.player.x, state.player.y, t.x, t.y) < t.r,
-    }));
-  }
-  return { reset, update, spawnCar, ensureTurfCars, destroyCar, debug, nearestTurf, turfStatus };
+  return cars;
+}
+
+// True when a point is inside the turf.
+export function inTurf(x, y) {
+  return Math.hypot(x - TURF.x, y - TURF.y) < TURF.r;
+}
+
+// The gang's turf data for the HUD: how many cars are up, how many the
+// player has torched, and the turf centre for the minimap marker.
+export function gangStatus(state) {
+  const up = state.gangCars.filter((c) => c.alive).length;
+  return {
+    up,
+    total: state.gangCars.length,
+    kills: state.gang.kills,
+    turf: { x: TURF.x, y: TURF.y },
+  };
 }

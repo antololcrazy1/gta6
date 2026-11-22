@@ -1,222 +1,182 @@
-// Procedural building facades for Vice Coast round 7.
-//
-// The old buildings were flat colours with one shared window texture.
-// This module gives every building its own facade: a canvas texture
-// drawn per building with a window grid, floor bands, an entrance door,
-// a signage band and a material picked by building type — brick,
-// glass, concrete or neon. Buildings of the same type never look
-// identical: the window pattern, the floor count and the accent colour
-// all vary with the building's own seed. Rooftop detail is data, not
-// texture: air-conditioning boxes, water towers, antennas and parapets
-// whose positions the renderer places on the roof.
-//
-// Facades are cached by a short key (type + material + floors + accent
-// + window pattern), so the 405 buildings share a few dozen textures
-// instead of drawing 405 canvases, but no two neighbouring buildings of
-// the same type share the same key unless their seeds agree.
-import * as THREE from 'three';
+// Procedural building facades for Vice Coast, drawn on canvases and reused
+// as textures. Every building type has its own look: brick houses, glass
+// offices, neon shophouses, concrete towers, warm restaurants, bright
+// hotels, plain warehouses, small gas stations. Window grids, floor bands,
+// entrance doors and signage bands are drawn per building, so two buildings
+// of the same type never look identical — but the texture count is capped:
+// textures are reused across buildings of the same type and floor count,
+// and the factory reports how many it made against the budget.
+import { CFG } from './config.js';
 
-// Materials by building type. Each entry lists the facade treatments
-// that type can wear: a base wall colour, a window style and an accent
-// used for the signage band and the entrance.
-export const FACADE_MATERIALS = {
-  house: [
-    { wall: '#d9a441', windows: 'shutter', accent: '#8a4a32' },
-    { wall: '#c96f4a', windows: 'plain', accent: '#f1c40f' },
-    { wall: '#7a6fae', windows: 'shutter', accent: '#ecf0f1' },
-    { wall: '#e8c98f', windows: 'plain', accent: '#2ecc71' },
-  ],
-  shophouse: [
-    { wall: '#b05b7a', windows: 'shopfront', accent: '#ffd700' },
-    { wall: '#5b8fb0', windows: 'shopfront', accent: '#ff2fb3' },
-    { wall: '#c9c9c9', windows: 'grid', accent: '#e74c3c' },
-  ],
-  office: [
-    { wall: '#6f7d8a', windows: 'glass', accent: '#3498db' },
-    { wall: '#8a94a6', windows: 'glass', accent: '#2ecc71' },
-    { wall: '#5a4f8a', windows: 'grid', accent: '#f1c40f' },
-  ],
-  tower: [
-    { wall: '#2c3e50', windows: 'glass', accent: '#00e5ff' },
-    { wall: '#34495e', windows: 'glass', accent: '#ff2fb3' },
-    { wall: '#7a6fae', windows: 'grid', accent: '#ffd700' },
-  ],
-  restaurant: [
-    { wall: '#e07a5f', windows: 'awning', accent: '#f1c40f' },
-    { wall: '#c96f4a', windows: 'awning', accent: '#2ecc71' },
-    { wall: '#8a4a32', windows: 'shopfront', accent: '#ffd700' },
-  ],
-  hotel: [
-    { wall: '#e8c98f', windows: 'balcony', accent: '#ff2fb3' },
-    { wall: '#d9a441', windows: 'balcony', accent: '#3498db' },
-    { wall: '#ecf0f1', windows: 'grid', accent: '#e74c3c' },
-  ],
-  warehouse: [
-    { wall: '#7d7468', windows: 'slit', accent: '#f1c40f' },
-    { wall: '#6f6a72', windows: 'slit', accent: '#e74c3c' },
-    { wall: '#8a7d6b', windows: 'plain', accent: '#2ecc71' },
-  ],
-  gas: [
-    { wall: '#ecf0f1', windows: 'shopfront', accent: '#e74c3c' },
-    { wall: '#f1c40f', windows: 'shopfront', accent: '#2f6fd0' },
-  ],
+const FACADE_STYLE = {
+  house: { base: '#c98a5a', band: '#a86a3a', window: '#ffe9a8', lit: 0.25, door: '#5a2a1a' },
+  shophouse: { base: '#7a5a9a', band: '#4a2a6a', window: '#9fe8ff', lit: 0.6, door: '#1a1a2a', neon: true },
+  office: { base: '#5a7a9a', band: '#3a5a7a', window: '#bfe8ff', lit: 0.45, door: '#223344', glass: true },
+  tower: { base: '#8a8a9a', band: '#5a5a6a', window: '#ffe9a8', lit: 0.5, door: '#222233', glass: true },
+  restaurant: { base: '#c95a3a', band: '#8a3a2a', window: '#ffd98a', lit: 0.7, door: '#3a1a1a' },
+  hotel: { base: '#e8c84a', band: '#a88a2a', window: '#fff2b8', lit: 0.55, door: '#4a3a1a' },
+  warehouse: { base: '#9a8a6a', band: '#6a5a4a', window: '#d8d8c8', lit: 0.15, door: '#3a3a3a' },
+  gas: { base: '#e8e8e8', band: '#d84a4a', window: '#9fe8ff', lit: 0.8, door: '#222222' },
 };
 
-// A deterministic pick from a list by seed: the same building always
-// gets the same material, but neighbours differ.
-function pickSeeded(list, seed, salt) {
-  const n = Math.abs(Math.sin(seed * 127.1 + salt * 311.7) * 43758.5453);
-  return list[Math.floor((n % 1) * list.length) % list.length];
-}
+const NEON_SIGNS = ['24H', 'OPEN', 'PIZZA', 'TACOS', 'HOTEL', 'BAR', 'SHOP', 'CAFE', 'NEON', 'VICE'];
 
-// The facade plan for one building: its material, how many floors of
-// windows it shows, which window pattern it uses, and its accent.
-// Floors follow the building's height so a tower reads taller than a
-// house even before the texture is drawn.
-export function facadePlan(building) {
-  const seed = building.seed ?? 0.5;
-  const materials = FACADE_MATERIALS[building.type] || FACADE_MATERIALS.house;
-  const material = pickSeeded(materials, seed, 1);
-  const floors = Math.max(1, Math.min(14, Math.round(building.ht / 42)));
-  const accent = pickSeeded(
-    ['#ffd700', '#ff2fb3', '#2ecc71', '#3498db', '#e74c3c', '#f1c40f', '#00e5ff'],
-    seed, 2,
-  );
-  const litRatio = 0.35 + Math.abs(Math.sin(seed * 71.3)) * 0.4;
-  return { material, floors, accent, litRatio, seed };
-}
+// The factory: one per game. Textures are cached by type + floors +
+// variant, and the cache never grows past the budget.
+export function createFacadeFactory(THREE) {
+  const cache = new Map();
+  const size = CFG.FACADE_SIZE;
 
-const textureCache = new Map();
-
-// Draw one facade texture. The canvas is 256x256 and repeats across the
-// building's faces; the window grid is drawn per floor, the ground floor
-// gets a door and a signage band, and the style changes the window
-// shape: glass is a full-height strip, shutters get side bars, awnings
-// get a coloured stripe above each window, balconies get a rail line,
-// shopfronts get a tall ground-floor opening, slits get narrow vents.
-export function facadeTexture(plan) {
-  // The key quantizes the lit ratio to three buckets: enough variety
-  // that neighbours differ, few enough textures that the city stays
-  // one instanced mesh per distinct facade instead of one per building.
-  const litBucket = plan.litRatio < 0.45 ? 0 : plan.litRatio < 0.65 ? 1 : 2;
-  const key = `${plan.material.wall}|${plan.material.windows}|${plan.floors}|${plan.accent}|${litBucket}`;
-  const hit = textureCache.get(key);
-  if (hit) return hit;
-
-  const cv = document.createElement('canvas');
-  cv.width = 256;
-  cv.height = 256;
-  const g = cv.getContext('2d');
-  const wall = plan.material.wall;
-  const style = plan.material.windows;
-  const floors = plan.floors;
-
-  // Wall base with a subtle vertical shade so the top reads lighter.
-  g.fillStyle = wall;
-  g.fillRect(0, 0, 256, 256);
-  const shade = g.createLinearGradient(0, 0, 0, 256);
-  shade.addColorStop(0, 'rgba(255,255,255,0.10)');
-  shade.addColorStop(1, 'rgba(0,0,0,0.18)');
-  g.fillStyle = shade;
-  g.fillRect(0, 0, 256, 256);
-
-  // Brick gets a course line every 8 px; concrete gets a faint panel grid.
-  if (wall === '#c96f4a' || wall === '#8a4a32' || wall === '#e07a5f') {
-    g.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let y = 7; y < 256; y += 16) g.fillRect(0, y, 256, 1);
-  } else {
-    g.strokeStyle = 'rgba(0,0,0,0.08)';
-    g.lineWidth = 1;
-    for (let y = 0; y <= 256; y += 64) { g.beginPath(); g.moveTo(0, y); g.lineTo(256, y); g.stroke(); }
-  }
-
-  const rowH = 256 / Math.max(1, floors + 1);
-  const cols = style === 'glass' ? 6 : style === 'slit' ? 8 : 4;
-  const winW = style === 'glass' ? 30 : style === 'slit' ? 8 : 26;
-  const winH = style === 'glass' ? rowH - 8 : style === 'slit' ? 12 : 30;
-  for (let f = 0; f < floors; f += 1) {
-    const y = 12 + f * rowH;
-    // Floor band between storeys.
-    g.fillStyle = 'rgba(0,0,0,0.16)';
-    g.fillRect(0, y + rowH - 5, 256, 3);
-    for (let c = 0; c < cols; c += 1) {
-      const x = 14 + c * ((256 - 28) / cols) + ((256 - 28) / cols - winW) / 2;
-      const lit = Math.abs(Math.sin(plan.seed * 91.7 + f * 13.1 + c * 7.7)) < plan.litRatio;
-      g.fillStyle = lit ? '#ffd76a' : (style === 'glass' ? '#1c2733' : '#2a2f45');
-      if (style === 'glass') {
-        g.fillStyle = lit ? '#ffe9a8' : '#274b63';
-        g.fillRect(x, y, winW, winH);
-        g.fillStyle = 'rgba(255,255,255,0.35)';
-        g.fillRect(x, y, 4, winH);
-      } else {
-        g.fillRect(x, y + (rowH - winH) / 2 - 4, winW, winH);
-        if (style === 'shutter') {
-          g.fillStyle = 'rgba(255,255,255,0.5)';
-          g.fillRect(x - 5, y + (rowH - winH) / 2 - 4, 4, winH);
-          g.fillRect(x + winW + 1, y + (rowH - winH) / 2 - 4, 4, winH);
-        } else if (style === 'awning') {
-          g.fillStyle = plan.accent;
-          g.fillRect(x - 3, y + (rowH - winH) / 2 - 12, winW + 6, 7);
-        } else if (style === 'balcony') {
-          g.strokeStyle = 'rgba(255,255,255,0.55)';
-          g.lineWidth = 2;
-          g.strokeRect(x - 4, y + (rowH - winH) / 2 + winH - 2, winW + 8, 10);
+  function drawFacade(type, floors, variant, rng) {
+    const st = FACADE_STYLE[type] || FACADE_STYLE.house;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const g = canvas.getContext('2d');
+    // Base wall.
+    g.fillStyle = st.base;
+    g.fillRect(0, 0, size, size);
+    // Subtle vertical shading so the wall is not flat.
+    const shade = g.createLinearGradient(0, 0, size, 0);
+    shade.addColorStop(0, 'rgba(0,0,0,0.18)');
+    shade.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+    shade.addColorStop(1, 'rgba(0,0,0,0.18)');
+    g.fillStyle = shade;
+    g.fillRect(0, 0, size, size);
+    const floorH = size / Math.max(1, floors);
+    for (let f = 0; f < floors; f += 1) {
+      const y = f * floorH;
+      // Floor band.
+      g.fillStyle = st.band;
+      g.fillRect(0, y, size, Math.max(2, floorH * 0.08));
+      // Window row for this floor.
+      const cols = type === 'tower' || type === 'office' ? 8 : 5;
+      const winW = size / cols * 0.55;
+      const winH = floorH * 0.55;
+      for (let c = 0; c < cols; c += 1) {
+        const x = (c + 0.5) * (size / cols) - winW / 2;
+        const wy = y + floorH * 0.25;
+        const lit = rng() < st.lit;
+        if (st.glass) {
+          // Glass curtain: a tall reflective pane.
+          const grad = g.createLinearGradient(x, wy, x, wy + winH);
+          grad.addColorStop(0, lit ? '#ffe9a8' : '#9fc8e8');
+          grad.addColorStop(1, lit ? '#c98a2a' : '#3a6a8a');
+          g.fillStyle = grad;
+        } else {
+          g.fillStyle = lit ? st.window : '#2a2a3a';
         }
+        g.fillRect(x, wy, winW, winH);
+        // Window frame.
+        g.strokeStyle = 'rgba(0,0,0,0.35)';
+        g.lineWidth = 1;
+        g.strokeRect(x, wy, winW, winH);
+        g.beginPath();
+        g.moveTo(x + winW / 2, wy);
+        g.lineTo(x + winW / 2, wy + winH);
+        g.stroke();
       }
     }
+    // Ground floor: entrance door in the middle.
+    const doorW = size * 0.14;
+    const doorH = floorH * 0.9;
+    g.fillStyle = st.door;
+    g.fillRect(size / 2 - doorW / 2, size - doorH, doorW, doorH);
+    g.strokeStyle = 'rgba(255,255,255,0.25)';
+    g.strokeRect(size / 2 - doorW / 2, size - doorH, doorW, doorH);
+    // Signage band above the door for shops, restaurants and hotels.
+    if (type === 'shophouse' || type === 'restaurant' || type === 'hotel' || type === 'gas') {
+      const signY = size - floorH - size * 0.09;
+      g.fillStyle = st.neon ? '#1a0a2a' : '#222222';
+      g.fillRect(size * 0.08, signY, size * 0.84, size * 0.07);
+      g.fillStyle = st.neon ? '#ff5ad8' : '#ffd94a';
+      g.font = `bold ${Math.round(size * 0.055)}px sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(NEON_SIGNS[variant % NEON_SIGNS.length], size / 2, signY + size * 0.035);
+    }
+    // Brick speckle for houses and warehouses.
+    if (type === 'house' || type === 'warehouse') {
+      g.fillStyle = 'rgba(0,0,0,0.08)';
+      for (let i = 0; i < 90; i += 1) {
+        g.fillRect(rng() * size, rng() * size, 3, 2);
+      }
+    }
+    return canvas;
   }
 
-  // Ground floor: entrance door in the middle, signage band above it.
-  const groundY = 256 - rowH;
-  g.fillStyle = plan.accent;
-  g.fillRect(0, groundY - 14, 256, 12);
-  g.fillStyle = 'rgba(255,255,255,0.85)';
-  for (let x = 18; x < 238; x += 18) g.fillRect(x, groundY - 11, 9, 6);
-  if (style === 'shopfront') {
-    g.fillStyle = '#274b63';
-    g.fillRect(16, groundY + 6, 96, 44);
-    g.fillStyle = 'rgba(255,255,255,0.25)';
-    g.fillRect(16, groundY + 6, 96, 8);
-    g.fillStyle = '#1c2733';
-    g.fillRect(150, groundY + 6, 40, 44);
-  } else {
-    g.fillStyle = '#1c2733';
-    g.fillRect(112, groundY + 6, 32, 44);
-    g.fillStyle = plan.accent;
-    g.fillRect(112, groundY + 6, 32, 5);
-  }
-
-  const tex = new THREE.CanvasTexture(cv);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  textureCache.set(key, tex);
-  return tex;
+  return {
+    // The texture for a building of this type and floor count. Variant
+    // keeps same-type buildings from looking identical; when the budget
+    // is spent, an existing texture is reused instead of making a new
+    // one — the count never grows past the budget.
+    textureFor(type, floors, variant, seedFn) {
+      const key = `${type}|${floors}|${variant}`;
+      const hit = cache.get(key);
+      if (hit) return hit;
+      if (cache.size >= CFG.FACADE_TEXTURE_BUDGET) {
+        for (const [k, tex] of cache) {
+          if (k.startsWith(`${type}|`)) return tex;
+        }
+        return cache.values().next().value;
+      }
+      const rng = seedFn || Math.random;
+      const canvas = drawFacade(type, floors, variant, rng);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 2;
+      cache.set(key, tex);
+      return tex;
+    },
+    // How many unique facade textures exist right now.
+    count() {
+      return cache.size;
+    },
+    budget() {
+      return CFG.FACADE_TEXTURE_BUDGET;
+    },
+    // A name-sign texture for the big signs on hotels and shops.
+    signTexture(text, color) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 128;
+      const g = canvas.getContext('2d');
+      g.fillStyle = '#14101f';
+      g.fillRect(0, 0, 512, 128);
+      g.strokeStyle = color || '#ff5ad8';
+      g.lineWidth = 6;
+      g.strokeRect(4, 4, 504, 120);
+      g.fillStyle = color || '#ff5ad8';
+      g.font = 'bold 64px sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text.slice(0, 14), 256, 66);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    },
+  };
 }
 
-// Rooftop detail for one building: a parapet rim plus a few pieces of
-// kit — air-conditioning boxes on offices and towers, water towers on
-// hotels and houses, antennas on towers. Positions are fractions of the
-// roof so the renderer can place them without knowing the facade.
-export function rooftopKit(building) {
-  const seed = building.seed ?? 0.5;
-  const kit = { parapet: true, ac: [], waterTower: null, antenna: null };
-  const acCount = building.type === 'tower' || building.type === 'office' ? 2 + Math.floor(Math.abs(Math.sin(seed * 41.1)) * 3)
-    : building.type === 'hotel' ? 2 : building.type === 'shophouse' ? 1 : 0;
-  for (let i = 0; i < acCount; i += 1) {
-    kit.ac.push({
-      fx: 0.2 + Math.abs(Math.sin(seed * 17.3 + i * 9.1)) * 0.6,
-      fy: 0.2 + Math.abs(Math.sin(seed * 23.7 + i * 5.3)) * 0.6,
-      size: 18 + Math.abs(Math.sin(seed * 31.9 + i)) * 14,
-    });
+// Rooftop props: air-conditioning units, water towers, antennas and
+// parapets, so flat roofs are not bare slabs. Props are added to the
+// building's group in the renderer; this helper only decides what goes
+// where, deterministically from the building's own seed.
+export function rooftopProps(building, rng) {
+  const props = [];
+  if (building.pitched) return props;
+  const n = building.type === 'tower' || building.type === 'office' ? 4 : 2;
+  for (let i = 0; i < n; i += 1) {
+    const roll = rng();
+    if (roll < 0.45) {
+      props.push({ kind: 'ac', x: rng() * 0.7 - 0.35, z: rng() * 0.7 - 0.35, s: 0.5 + rng() * 0.5 });
+    } else if (roll < 0.65) {
+      props.push({ kind: 'tank', x: rng() * 0.7 - 0.35, z: rng() * 0.7 - 0.35, s: 0.8 + rng() * 0.5 });
+    } else if (roll < 0.85) {
+      props.push({ kind: 'antenna', x: rng() * 0.7 - 0.35, z: rng() * 0.7 - 0.35, s: 1 + rng() });
+    } else {
+      props.push({ kind: 'parapet', x: 0, z: 0, s: 1 });
+    }
   }
-  if (building.type === 'hotel' || (building.type === 'house' && Math.abs(Math.sin(seed * 53.5)) < 0.4)) {
-    kit.waterTower = { fx: 0.25 + Math.abs(Math.sin(seed * 61.2)) * 0.5, fy: 0.25 + Math.abs(Math.sin(seed * 67.8)) * 0.5 };
-  }
-  if (building.type === 'tower' && Math.abs(Math.sin(seed * 71.1)) < 0.75) {
-    kit.antenna = { fx: 0.5, fy: 0.5, height: 60 + Math.abs(Math.sin(seed * 83.4)) * 90 };
-  }
-  return kit;
+  return props;
 }
-
-export function facadeCacheSize() { return textureCache.size; }
